@@ -19,7 +19,6 @@
 #define AVI_BROWSE                              1017
 #define TIME_END                                1018
 #define VIDEO_FORMAT                            1020
-#define SHOW_BACKGROUND                         1022
 #define DO_CLEANUP                              1023
 #define SELECT_WA_DIR                           40000
-#define SELECT_VDUB_DIR                         40001
+#define WA_DETAIL                               40002

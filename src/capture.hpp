@@ -22,6 +22,7 @@
 #include <string>
 
 #include "audio.hpp"
+#include "main.hpp"
 
 #define FRAME_PREFIX "arec_"
 #define SYNC_FRAMES 25
@@ -33,12 +34,14 @@ struct wa_capture {
 	std::string replay_path;
 	std::string capture_path;
 	
-	unsigned int frame_rate;
+	arec_config config;
 	
 	HANDLE worker_thread;
 	
 	char *worms_cmdline;
 	HANDLE worms_process;
+	
+	unsigned int orig_detail_level;
 	
 	bool using_rec_a;
 	audio_recorder *audio_rec_a, *audio_rec_b;
@@ -50,7 +53,7 @@ struct wa_capture {
 	HANDLE capture_monitor;
 	HANDLE force_exit;
 	
-	wa_capture(const std::string &replay, unsigned int width, unsigned int height, unsigned int fps, const std::string &start, const std::string &end);
+	wa_capture(const std::string &replay, const arec_config &conf, const std::string &start, const std::string &end);
 	~wa_capture();
 	
 	void worker_main();

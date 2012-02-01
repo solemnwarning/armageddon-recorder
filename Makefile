@@ -21,6 +21,7 @@ INCLUDES := -D_WIN32_WINNT=0x0501 -D_WIN32_IE=0x0300
 LIBS := -static-libgcc -static-libstdc++ -lwinmm -lcomctl32 -lcomdlg32 -lole32 -lvfw32
 
 OBJS := src/main.o src/resource.o src/audio.o src/reg.o src/encode.o src/capture.o
+HDRS := src/main.hpp src/resource.h src/audio.hpp src/reg.hpp src/encode.hpp src/capture.hpp
 
 all: armageddon-recorder.exe
 
@@ -34,9 +35,5 @@ armageddon-recorder.exe: $(OBJS)
 src/resource.o: src/resource.rc src/resource.h
 	$(WINDRES) src/resource.rc src/resource.o
 
-src/main.o: src/main.cpp src/audio.hpp src/reg.hpp
-src/audio.o: src/audio.cpp src/audio.hpp
-src/reg.o: src/reg.cpp src/reg.hpp
-src/encode.o: src/encode.cpp src/encode.hpp
-src/capture.o: src/capture.cpp src/capture.hpp src/audio.hpp
+src/%.o: src/%.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c -o $@ $<

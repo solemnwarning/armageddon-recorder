@@ -28,22 +28,22 @@ MENU_MAIN MENU
 // Dialog resources
 //
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
-DLG_MAIN DIALOG 0, 0, 309, 178
+DLG_MAIN DIALOG 0, 0, 309, 193
 STYLE DS_3DLOOK | DS_CENTER | DS_MODALFRAME | DS_SHELLFONT | WS_CAPTION | WS_VISIBLE | WS_POPUP | WS_SYSMENU
 CAPTION "Armageddon Recorder"
 MENU MENU_MAIN
 FONT 8, "Ms Shell Dlg"
 {
-    DEFPUSHBUTTON   "OK", IDOK, 200, 160, 50, 14
-    PUSHBUTTON      "Cancel", IDCANCEL, 255, 160, 50, 14
+    DEFPUSHBUTTON   "OK", IDOK, 200, 175, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 255, 175, 50, 14
     COMBOBOX        AUDIO_SOURCE, 60, 35, 185, 50, WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_HASSTRINGS
     LTEXT           "Audio device:", IDC_STATIC, 13, 37, 44, 8, SS_LEFT
     LTEXT           "Replay file:", IDC_STATIC, 21, 20, 36, 8, SS_LEFT
     EDITTEXT        REPLAY_PATH, 60, 18, 185, 13, ES_AUTOHSCROLL
-    EDITTEXT        AVI_PATH, 60, 135, 185, 12, ES_AUTOHSCROLL
-    LTEXT           "Output video:", IDC_STATIC, 13, 136, 44, 8, SS_LEFT
+    EDITTEXT        AVI_PATH, 60, 150, 185, 12, ES_AUTOHSCROLL
+    LTEXT           "Output video:", IDC_STATIC, 13, 151, 44, 8, SS_LEFT
     PUSHBUTTON      "Browse...", REPLAY_BROWSE, 250, 18, 50, 13
-    PUSHBUTTON      "Browse...", AVI_BROWSE, 250, 134, 50, 13
+    PUSHBUTTON      "Browse...", AVI_BROWSE, 250, 149, 50, 13
     LTEXT           "Resolution:", IDC_STATIC, 21, 54, 36, 8, SS_LEFT
     EDITTEXT        RES_X, 60, 52, 35, 12, ES_AUTOHSCROLL
     LTEXT           "X", IDC_STATIC, 100, 54, 8, 8, SS_LEFT
@@ -55,12 +55,13 @@ FONT 8, "Ms Shell Dlg"
     LTEXT           "(Leave empty to export whole game)", IDC_STATIC, 158, 70, 115, 8, SS_LEFT
     EDITTEXT        FRAMES_SEC, 200, 52, 35, 12, ES_AUTOHSCROLL
     LTEXT           "Frames/sec:", IDC_STATIC, 158, 54, 40, 8, SS_LEFT
-    COMBOBOX        VIDEO_FORMAT, 60, 118, 185, 60, WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_HASSTRINGS
-    LTEXT           "Video format:", IDC_STATIC, 15, 120, 42, 8, SS_LEFT
-    AUTOCHECKBOX    "Display background", SHOW_BACKGROUND, 60, 85, 79, 8
-    AUTOCHECKBOX    "Delete frames/audio when finished", DO_CLEANUP, 145, 85, 125, 8
-    GROUPBOX        "Capture settings", IDC_STATIC, 5, 5, 300, 95
-    GROUPBOX        "Video settings", IDC_STATIC, 5, 105, 300, 50
+    COMBOBOX        VIDEO_FORMAT, 60, 133, 185, 60, WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_HASSTRINGS
+    LTEXT           "Video format:", IDC_STATIC, 15, 135, 42, 8, SS_LEFT
+    AUTOCHECKBOX    "Delete frames/audio when finished", DO_CLEANUP, 60, 102, 125, 8
+    GROUPBOX        "Capture settings", IDC_STATIC, 5, 5, 300, 110
+    GROUPBOX        "Video settings", IDC_STATIC, 5, 120, 300, 50
+    LTEXT           "Detail level:", IDC_STATIC, 19, 87, 38, 8, SS_LEFT
+    COMBOBOX        WA_DETAIL, 60, 85, 185, 50, WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_HASSTRINGS
 }
 
 

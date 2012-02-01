@@ -36,23 +36,30 @@
 #include "reg.hpp"
 #include "encode.hpp"
 #include "capture.hpp"
+#include "main.hpp"
 
 /* I thought we were past missing things, MinGW... */
 #define BIF_NONEWFOLDERBUTTON 0x00000200
 typedef LPITEMIDLIST PIDLIST_ABSOLUTE;
 
+const char *detail_levels[] = {
+	"0 - No background",
+	"1 - Extra waves",
+	"2 - Gradient background, more waves",
+	"3 - Smoother gradient background",
+	"4 - Flying debris in background",
+	"5 - Images in background",
+	NULL
+};
+
 std::string replay_path;
 std::string start_time, end_time;
-unsigned int res_x, res_y;
-unsigned int frame_rate;
 
-bool enable_audio;
-unsigned int audio_source;
+arec_config config;
 
 std::string video_path;
 unsigned int video_format = 2;
 
-bool show_background;
 bool do_cleanup;
 
 std::string wa_path;
@@ -198,8 +205,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			SendMessage(hwnd, WM_SETICON, 0, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON16)));
 			SendMessage(hwnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON32)));
 			
-			SetWindowText(GetDlgItem(hwnd, RES_X), to_string(res_x).c_str());
-			SetWindowText(GetDlgItem(hwnd, RES_Y), to_string(res_y).c_str());
+			SetWindowText(GetDlgItem(hwnd, RES_X), to_string(config.width).c_str());
+			SetWindowText(GetDlgItem(hwnd, RES_Y), to_string(config.height).c_str());
 			
 			HWND fmt_list = GetDlgItem(hwnd, VIDEO_FORMAT);
 			
@@ -221,14 +228,23 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			for(unsigned int i = 0; i < sources.size(); i++) {
 				ComboBox_AddString(audio_list, sources[i].szPname);
 				
-				if(enable_audio && (i == audio_source || i == 0)) {
+				if(config.enable_audio && (i == config.audio_source || i == 0)) {
 					ComboBox_SetCurSel(audio_list, i + 1);
 				}
 			}
 			
-			SetWindowText(GetDlgItem(hwnd, FRAMES_SEC), to_string(frame_rate).c_str());
+			SetWindowText(GetDlgItem(hwnd, FRAMES_SEC), to_string(config.frame_rate).c_str());
 			
-			Button_SetCheck(GetDlgItem(hwnd, SHOW_BACKGROUND), (show_background ? BST_CHECKED : BST_UNCHECKED));
+			HWND detail_list = GetDlgItem(hwnd, WA_DETAIL);
+			
+			for(unsigned int i = 0; detail_levels[i]; i++) {
+				ComboBox_AddString(detail_list, detail_levels[i]);
+				
+				if(i == config.wa_detail_level) {
+					ComboBox_SetCurSel(detail_list, i);
+				}
+			}
+			
 			Button_SetCheck(GetDlgItem(hwnd, DO_CLEANUP), (do_cleanup ? BST_CHECKED : BST_UNCHECKED));
 			
 			goto VIDEO_ENABLE;
@@ -249,8 +265,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						video_path = get_window_string(GetDlgItem(hwnd, AVI_PATH));
 						video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
 						
-						audio_source = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_SOURCE));
-						enable_audio = (audio_source-- > 0);
+						config.audio_source = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_SOURCE));
+						config.enable_audio = (config.audio_source-- > 0);
 						
 						std::string rx_string = get_window_string(GetDlgItem(hwnd, RES_X));
 						std::string ry_string = get_window_string(GetDlgItem(hwnd, RES_Y));
@@ -260,8 +276,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 							break;
 						}
 						
-						res_x = strtoul(rx_string.c_str(), NULL, 10);
-						res_y = strtoul(ry_string.c_str(), NULL, 10);
+						config.width = strtoul(rx_string.c_str(), NULL, 10);
+						config.height = strtoul(ry_string.c_str(), NULL, 10);
 						
 						std::string fps_text = get_window_string(GetDlgItem(hwnd, FRAMES_SEC));
 						
@@ -270,7 +286,7 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 							break;
 						}
 						
-						frame_rate = atoi(fps_text.c_str());
+						config.frame_rate = atoi(fps_text.c_str());
 						
 						start_time = get_window_string(GetDlgItem(hwnd, TIME_START));
 						end_time = get_window_string(GetDlgItem(hwnd, TIME_END));
@@ -285,7 +301,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 							break;
 						}
 						
-						show_background = Button_GetCheck(GetDlgItem(hwnd, SHOW_BACKGROUND));
+						config.wa_detail_level = ComboBox_GetCurSel(GetDlgItem(hwnd, WA_DETAIL));
+						
 						do_cleanup = Button_GetCheck(GetDlgItem(hwnd, DO_CLEANUP));
 						
 						if(video_format == 0 && do_cleanup) {
@@ -489,9 +506,9 @@ std::string ffmpeg_cmdline(const encoder_info &format, const std::string &captur
 	std::string audio_in = escape_filename(capture_dir + "\\" + FRAME_PREFIX + "audio.wav");
 	std::string video_out = escape_filename(video_path);
 	
-	std::string cmdline = "ffmpeg.exe -threads 0 -y -r " + to_string(frame_rate) + " -i \"" + frames_in + "\"";
+	std::string cmdline = "ffmpeg.exe -threads 0 -y -r " + to_string(config.frame_rate) + " -i \"" + frames_in + "\"";
 	
-	if(enable_audio) {
+	if(config.enable_audio) {
 		cmdline.append(std::string(" -i \"") + audio_in + "\"");
 	}
 	
@@ -502,7 +519,7 @@ std::string ffmpeg_cmdline(const encoder_info &format, const std::string &captur
 	}
 	
 	if(format.bps_pix) {
-		unsigned int bps = res_x * res_y;
+		unsigned int bps = config.width * config.height;
 		bps *= format.bps_pix;
 		
 		cmdline.append(std::string(" -b:v ") + to_string(bps));
@@ -523,7 +540,6 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	
 	static exe_launcher *encoder = NULL;
 	
-	static DWORD orig_detail = 0;
 	static int return_code;
 	
 	switch(msg) {
@@ -550,18 +566,13 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 		}
 		
 		case WM_BEGIN: {
-			orig_detail = wa_options.get_dword("DetailLevel", 0);
-			wa_options.set_dword("DetailLevel", show_background ? 5 : 0);
-			
-			capture = new wa_capture(replay_path, res_x, res_y, frame_rate, start_time, end_time);
+			capture = new wa_capture(replay_path, config, start_time, end_time);
 			capture_path = capture->capture_path;
 			
 			return TRUE;
 		}
 		
 		case WM_WAEXIT: {
-			wa_options.set_dword("DetailLevel", orig_detail);
-			
 			if(encoders[video_format].type == encoder_info::ffmpeg) {
 				log_push("Starting encoder...\r\n");
 				
@@ -647,29 +658,29 @@ int main(int argc, char **argv) {
 		}
 	}
 	
-	res_x = reg.get_dword("res_x", 640);
-	res_y = reg.get_dword("res_y", 480);
+	config.width = reg.get_dword("res_x", 640);
+	config.height = reg.get_dword("res_y", 480);
 	
-	frame_rate = reg.get_dword("frame_rate", 25);
+	config.frame_rate = reg.get_dword("frame_rate", 25);
 	
-	enable_audio = reg.get_dword("enable_audio", true);
-	audio_source = reg.get_dword("audio_source", 0);
+	config.enable_audio = reg.get_dword("enable_audio", true);
+	config.audio_source = reg.get_dword("audio_source", 0);
 	
-	show_background = reg.get_dword("show_background", false);
+	config.wa_detail_level = reg.get_dword("wa_detail_level", 0);
 	do_cleanup = reg.get_dword("do_cleanup", true);
 	
 	while(DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_MAIN), NULL, &main_dproc)) {
 		reg.set_string("selected_encoder", encoders[video_format].name);
 		
-		reg.set_dword("res_x", res_x);
-		reg.set_dword("res_y", res_y);
+		reg.set_dword("res_x", config.width);
+		reg.set_dword("res_y", config.height);
 		
-		reg.set_dword("frame_rate", frame_rate);
+		reg.set_dword("frame_rate", config.frame_rate);
 		
-		reg.set_dword("enable_audio", enable_audio);
-		reg.set_dword("audio_source", audio_source);
+		reg.set_dword("enable_audio", config.enable_audio);
+		reg.set_dword("audio_source", config.audio_source);
 		
-		reg.set_dword("show_background", show_background);
+		reg.set_dword("wa_detail_level", config.wa_detail_level);
 		reg.set_dword("do_cleanup", do_cleanup);
 		
 		reg.set_string("wa_path", wa_path);

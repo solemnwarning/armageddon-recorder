@@ -25,9 +25,6 @@
 void delete_frames(const std::string &dir);
 void log_push(const std::string &msg);
 
-extern bool enable_audio;
-extern unsigned int audio_source;
-
 extern std::string wa_path;
 
 extern HWND progress_dialog;
@@ -46,7 +43,7 @@ static DWORD WINAPI capture_worker_init(LPVOID this_ptr) {
 	return 0;
 }
 
-wa_capture::wa_capture(const std::string &replay, unsigned int width, unsigned int height, unsigned int fps, const std::string &start, const std::string &end) {
+wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const std::string &start, const std::string &end): config(conf) {
 	std::string replay_name = replay_path = replay;
 	
 	size_t last_slash = replay_name.find_last_of('\\');
@@ -63,17 +60,15 @@ wa_capture::wa_capture(const std::string &replay, unsigned int width, unsigned i
 	
 	capture_path = wa_path + "\\User\\Capture\\" + replay_name;
 	
-	frame_rate = fps;
-	
 	delete_frames(capture_path);
 	CreateDirectory(capture_path.c_str(), NULL);
 	
 	assert((audio_event = CreateEvent(NULL, FALSE, FALSE, NULL)));
 	
-	if(enable_audio) {
+	if(config.enable_audio) {
 		using_rec_a = true;
-		audio_rec_a = new audio_recorder(audio_source, audio_event);
-		audio_rec_b = new audio_recorder(audio_source, audio_event);
+		audio_rec_a = new audio_recorder(config.audio_source, audio_event);
+		audio_rec_b = new audio_recorder(config.audio_source, audio_event);
 		
 		wav_out = new wav_writer(capture_path + "\\" + FRAME_PREFIX + "audio.wav", CHANNELS, SAMPLE_RATE, SAMPLE_BITS);
 		next_sync = 0;
@@ -86,13 +81,18 @@ wa_capture::wa_capture(const std::string &replay, unsigned int width, unsigned i
 	capture_monitor = FindFirstChangeNotification(capture_path.c_str(), FALSE, FILE_NOTIFY_CHANGE_FILE_NAME);
 	assert(capture_monitor != INVALID_HANDLE_VALUE);
 	
+	/* Set WA options */
+	
+	orig_detail_level = wa_options.get_dword("DetailLevel", 0);
+	wa_options.set_dword("DetailLevel", conf.wa_detail_level);
+	
 	log_push("Starting WA...\r\n");
 	
 	std::string cmdline = "\"" + wa_path + "\\wa.exe\" /getvideo"
 		" \"" + replay_path + "\""
-		" \"" + to_string((double)50 / (double)frame_rate) + "\""
+		" \"" + to_string((double)50 / (double)config.frame_rate) + "\""
 		" \"" + start + "\" \"" + end + "\""
-		" \"" + to_string(width) + "\" \"" + to_string(height) + "\""
+		" \"" + to_string(config.width) + "\" \"" + to_string(config.height) + "\""
 		" \"" + FRAME_PREFIX + "\"";
 	
 	worms_cmdline = new char[cmdline.length() + 1];
@@ -130,6 +130,10 @@ wa_capture::~wa_capture() {
 	CloseHandle(worms_process);
 	delete worms_cmdline;
 	
+	/* Restore original WA options */
+	
+	wa_options.set_dword("DetailLevel", orig_detail_level);
+	
 	FindCloseChangeNotification(capture_monitor);
 	
 	delete wav_out;
@@ -164,7 +168,7 @@ void wa_capture::worker_main() {
 				 * truncate WAV file to correct length.
 				*/
 				
-				if(enable_audio) {
+				if(config.enable_audio) {
 					audio_rec_a->stop();
 					flush_audio(audio_rec_a);
 					
@@ -181,7 +185,7 @@ void wa_capture::worker_main() {
 					
 					unsigned int num_frames = count_frames();
 					
-					wav_out->force_length((SAMPLE_RATE / frame_rate) * num_frames);
+					wav_out->force_length((SAMPLE_RATE / config.frame_rate) * num_frames);
 					
 					delete wav_out;
 					wav_out = NULL;
@@ -199,7 +203,7 @@ void wa_capture::worker_main() {
 			}
 			
 			case WAIT_OBJECT_0 + 3: {
-				if(!enable_audio) {
+				if(!config.enable_audio) {
 					n_events--;
 					break;
 				}
@@ -219,7 +223,7 @@ void wa_capture::worker_main() {
 					
 					flush_audio(o_rec);
 					
-					wav_out->force_length((SAMPLE_RATE / frame_rate) * (frames + 1));
+					wav_out->force_length((SAMPLE_RATE / config.frame_rate) * (frames + 1));
 					
 					FindNextChangeNotification(capture_monitor);
 					
