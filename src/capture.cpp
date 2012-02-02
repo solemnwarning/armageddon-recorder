@@ -259,7 +259,7 @@ void wa_capture::flush_audio() {
 			
 			/* The needed audio may be further in due to lag */
 			
-			assert((ssize_t)recorded_frames > buf_start);
+			assert((ssize_t)recorded_frames >= buf_start);
 			
 			size_t skip_bytes = (recorded_frames - buf_start) * frame_bytes;
 			
