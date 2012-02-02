@@ -43,8 +43,9 @@ audio_recorder::audio_recorder(unsigned int device_id, HANDLE ev): event(ev) {
 	
 	assert(err == MMSYSERR_NOERROR);
 	
-	add_buffer();
-	add_buffer();
+	for(int i = 0; i < MIN_AUDIO_BUFFERS; i++) {
+		add_buffer();
+	}
 }
 
 audio_recorder::~audio_recorder() {
@@ -123,13 +124,16 @@ std::string wave_error(MMRESULT errnum) {
 	return err;
 }
 
-wav_writer::wav_writer(const std::string &filename, int channels, int sample_rate, int sample_width) {
-	header.chunk1_channels = channels;
-	header.chunk1_sample_rate = sample_rate;
-	header.chunk1_bits_sample = sample_width;
+wav_writer::wav_writer(const std::string &filename, int channels, int rate, int width) {
+	sample_size = channels * (width / 8);
+	sample_rate = rate;
 	
-	header.chunk1_byte_rate = sample_rate * channels * (sample_width / 8);
-	header.chunk1_align = channels * (sample_width / 8);
+	header.chunk1_channels = channels;
+	header.chunk1_sample_rate = rate;
+	header.chunk1_bits_sample = width;
+	
+	header.chunk1_byte_rate = rate * sample_size;
+	header.chunk1_align = sample_size;
 	
 	assert((file = fopen(filename.c_str(), "wb")));
 }
@@ -172,6 +176,8 @@ void wav_writer::write_at(size_t offset, const void *data, size_t size) {
 }
 
 void wav_writer::append_data(const void *data, size_t size) {
+	assert((size % sample_size) == 0);
+	
 	write_at(sizeof(header) + header.chunk2_size, data, size);
 	
 	header.chunk0_size += size;

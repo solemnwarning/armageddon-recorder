@@ -31,7 +31,10 @@
 #define BLOCK_ALIGN (CHANNELS * (SAMPLE_BITS / 8))
 #define BYTES_SEC (SAMPLE_RATE * BLOCK_ALIGN)
 
-#define AUDIO_BUF_SIZE (BYTES_SEC * 4)
+// #define AUDIO_BUF_SIZE (BYTES_SEC * 4)
+#define AUDIO_BUF_SIZE 7056 /* 1/25th sec */
+// #define AUDIO_BUF_SIZE 17640 /* 1/10th sec */
+#define MIN_AUDIO_BUFFERS 64
 
 struct wav_hdr {
 	uint32_t chunk0_id;
@@ -93,7 +96,10 @@ struct wav_writer {
 	wav_hdr header;
 	FILE *file;
 	
-	wav_writer(const std::string &filename, int channels, int sample_rate, int sample_width);
+	unsigned int sample_size;
+	unsigned int sample_rate;
+	
+	wav_writer(const std::string &filename, int channels, int rate, int width);
 	~wav_writer();
 	
 	void force_length(size_t samples);

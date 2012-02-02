@@ -20,15 +20,26 @@
 
 #include <windows.h>
 #include <string>
+#include <list>
 
 #include "audio.hpp"
 #include "main.hpp"
 
 #define FRAME_PREFIX "arec_"
 #define SYNC_FRAMES 25
+#define ALLOWED_AUDIO_SKEW 5
 
 #define WM_WAEXIT WM_USER+1
 #define WM_PUSHLOG WM_USER+2
+
+struct audio_buf {
+	char *data;
+	size_t size;	/* Amount of audio data in buffer */
+	
+	size_t frames;	/* Number of frames present when buffer was popped */
+	
+	audio_buf(char *d, size_t s, size_t f): data(d), size(s), frames(f) {}
+};
 
 struct wa_capture {
 	std::string replay_path;
@@ -37,21 +48,23 @@ struct wa_capture {
 	arec_config config;
 	
 	HANDLE worker_thread;
+	HANDLE force_exit;
 	
 	char *worms_cmdline;
 	HANDLE worms_process;
 	
 	unsigned int orig_detail_level;
 	
-	bool using_rec_a;
-	audio_recorder *audio_rec_a, *audio_rec_b;
+	audio_recorder *audio_rec;
 	HANDLE audio_event;
 	
 	wav_writer *wav_out;
-	unsigned int next_sync;
 	
-	HANDLE capture_monitor;
-	HANDLE force_exit;
+	size_t recorded_frames;
+	std::list<WAVEHDR> audio_buffers;
+	
+	/* Cached result of count_frames() */
+	size_t last_frame_count;
 	
 	wa_capture(const std::string &replay, const arec_config &conf, const std::string &start, const std::string &end);
 	~wa_capture();
@@ -61,7 +74,7 @@ struct wa_capture {
 	bool frame_exists(unsigned int frame);
 	unsigned int count_frames();
 	
-	void flush_audio(audio_recorder *rec);
+	void flush_audio();
 };
 
 #endif /* !AREC_CAPTURE_HPP */

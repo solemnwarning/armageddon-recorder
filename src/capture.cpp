@@ -63,23 +63,15 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const
 	delete_frames(capture_path);
 	CreateDirectory(capture_path.c_str(), NULL);
 	
-	assert((audio_event = CreateEvent(NULL, FALSE, FALSE, NULL)));
-	
 	if(config.enable_audio) {
-		using_rec_a = true;
-		audio_rec_a = new audio_recorder(config.audio_source, audio_event);
-		audio_rec_b = new audio_recorder(config.audio_source, audio_event);
+		assert((audio_event = CreateEvent(NULL, FALSE, FALSE, NULL)));
+		audio_rec = new audio_recorder(config.audio_source, audio_event);
 		
 		wav_out = new wav_writer(capture_path + "\\" + FRAME_PREFIX + "audio.wav", CHANNELS, SAMPLE_RATE, SAMPLE_BITS);
-		next_sync = 0;
-	}else{
-		audio_rec_a = audio_rec_b = NULL;
-		wav_out = NULL;
 	}
 	
-	/* Monitor capture directory for creation of frames */
-	capture_monitor = FindFirstChangeNotification(capture_path.c_str(), FALSE, FILE_NOTIFY_CHANGE_FILE_NAME);
-	assert(capture_monitor != INVALID_HANDLE_VALUE);
+	recorded_frames = 0;
+	last_frame_count = 0;
 	
 	/* Set WA options */
 	
@@ -112,7 +104,6 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const
 	/* Create worker thread */
 	
 	assert((force_exit = CreateEvent(NULL, FALSE, FALSE, NULL)));
-	
 	assert((worker_thread = CreateThread(NULL, 0, &capture_worker_init, this, 0, NULL)));
 }
 
@@ -134,19 +125,27 @@ wa_capture::~wa_capture() {
 	
 	wa_options.set_dword("DetailLevel", orig_detail_level);
 	
-	FindCloseChangeNotification(capture_monitor);
-	
-	delete wav_out;
-	
-	delete audio_rec_a;
-	delete audio_rec_b;
-	
-	CloseHandle(audio_event);
+	if(config.enable_audio) {
+		delete wav_out;
+		
+		delete audio_rec;
+		CloseHandle(audio_event);
+	}
 }
 
 void wa_capture::worker_main() {
-	HANDLE events[] = {force_exit, audio_event, worms_process, capture_monitor};
-	int n_events = 4;
+	HANDLE events[] = {force_exit, worms_process, audio_event};
+	int n_events = 2;
+	
+	/* Audio recording isn't started until the worker thread starts executing
+	 * to reduce the chance of the buffers running out and causing the multimedia
+	 * API to automatically stop recording.
+	*/
+	
+	if(config.enable_audio) {
+		audio_rec->start();
+		n_events = 3;
+	}
 	
 	while(1) {
 		DWORD wait = WaitForMultipleObjects(n_events, events, FALSE, INFINITE);
@@ -156,39 +155,23 @@ void wa_capture::worker_main() {
 				return;
 			}
 			
-			case WAIT_OBJECT_0 + 1: {
-				flush_audio(audio_rec_a);
-				flush_audio(audio_rec_b);
-				
+			case WAIT_OBJECT_0 + 2: {
+				flush_audio();
 				break;
 			}
 			
-			case WAIT_OBJECT_0 + 2: {
-				/* Worms has exited, stop recording audio, flush buffers and
-				 * truncate WAV file to correct length.
-				*/
+			case WAIT_OBJECT_0 + 1: {
+				/* Worms has exited, stop recording audio and flush buffers. */
 				
 				if(config.enable_audio) {
-					audio_rec_a->stop();
-					flush_audio(audio_rec_a);
-					
-					delete audio_rec_a;
-					audio_rec_a = NULL;
-					
-					audio_rec_b->stop();
-					flush_audio(audio_rec_b);
-					
-					delete audio_rec_b;
-					audio_rec_b = NULL;
-					
-					/* Truncate WAV file to length */
-					
-					unsigned int num_frames = count_frames();
-					
-					wav_out->force_length((SAMPLE_RATE / config.frame_rate) * num_frames);
+					audio_rec->stop();
+					flush_audio();
 					
 					delete wav_out;
 					wav_out = NULL;
+					
+					delete audio_rec;
+					audio_rec = NULL;
 				}
 				
 				DWORD exit_code;
@@ -200,53 +183,6 @@ void wa_capture::worker_main() {
 				PostMessage(progress_dialog, WM_WAEXIT, 0, 0);
 				
 				return;
-			}
-			
-			case WAIT_OBJECT_0 + 3: {
-				if(!config.enable_audio) {
-					n_events--;
-					break;
-				}
-				
-				size_t frames = count_frames();
-				
-				if(frames > next_sync) {
-					audio_recorder *o_rec = (using_rec_a ? audio_rec_a : audio_rec_b);
-					audio_recorder *n_rec = (using_rec_a ? audio_rec_b : audio_rec_a);
-					
-					using_rec_a = !using_rec_a;
-					
-					n_rec->start();
-					o_rec->stop();
-					
-					next_sync = frames + SYNC_FRAMES;
-					
-					flush_audio(o_rec);
-					
-					wav_out->force_length((SAMPLE_RATE / config.frame_rate) * (frames + 1));
-					
-					FindNextChangeNotification(capture_monitor);
-					
-					/*
-					audio_rec->start();
-					n_events--;
-					*/
-				}
-				
-				#if 0
-				if(GetFileAttributes(frame_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
-					/* Frame #0 exits, start recording audio and ignore further
-					 * events from capture_monitor.
-					*/
-					
-					audio_rec->start();
-					n_events--;
-				}else{
-					FindNextChangeNotification(capture_monitor);
-				}
-				#endif
-				
-				break;
 			}
 		}
 	}
@@ -262,20 +198,83 @@ bool wa_capture::frame_exists(unsigned int frame) {
 }
 
 unsigned int wa_capture::count_frames() {
-	unsigned int frames = 0;
-	
-	while(frame_exists(frames)) {
-		frames++;
+	while(frame_exists(last_frame_count)) {
+		last_frame_count++;
 	}
 	
-	return frames;
+	return last_frame_count;
 }
 
-void wa_capture::flush_audio(audio_recorder *rec) {
-	std::list<WAVEHDR> buffers = rec->get_buffers();
+void wa_capture::flush_audio() {
+	size_t frames = count_frames();
 	
-	for(std::list<WAVEHDR>::iterator b = buffers.begin(); b != buffers.end(); b++) {
-		wav_out->append_data(b->lpData, b->dwBytesRecorded);
+	std::list<WAVEHDR> tmp_buffers = audio_rec->get_buffers();
+	
+	audio_buffers.insert(audio_buffers.end(), tmp_buffers.begin(), tmp_buffers.end());
+	
+	if(frames == recorded_frames || audio_buffers.empty()) {
+		/* No new frames dumped or no audio available */
+		return;
+	}
+	
+	size_t frame_bytes = (wav_out->sample_rate * wav_out->sample_size) / config.frame_rate;
+	
+	while(frames > recorded_frames) {
+		ssize_t buf_start = frames;
+		
+		for(std::list<WAVEHDR>::reverse_iterator b = audio_buffers.rbegin(); b != audio_buffers.rend();) {
+			buf_start -= b->dwBytesRecorded / frame_bytes;
+			
+			size_t p_buf_start = buf_start >= 0 ? buf_start : 0;
+			
+			if(p_buf_start > recorded_frames) {
+				if(++b == audio_buffers.rend()) {
+					/* There's a gap in the audio stream, or WA is exporting
+					 * frames faster than it should.
+					*/
+					
+					/* Allow n frames of leeway to allow for frame writing being
+					 * out of sync.
+					*/
+					
+					if(recorded_frames + ALLOWED_AUDIO_SKEW >= p_buf_start) {
+						return;
+					}
+					
+					size_t pad_bytes = (p_buf_start - recorded_frames) * frame_bytes;
+					
+					char *zbuf = new char[pad_bytes];
+					memset(zbuf, 0, pad_bytes);
+					
+					wav_out->append_data(zbuf, pad_bytes);
+					recorded_frames += p_buf_start - recorded_frames;
+					
+					delete zbuf;
+					
+					b--;
+				}else{
+					continue;
+				}
+			}
+			
+			/* The needed audio may be further in due to lag */
+			
+			assert((ssize_t)recorded_frames > buf_start);
+			
+			size_t skip_bytes = (recorded_frames - buf_start) * frame_bytes;
+			
+			wav_out->append_data(b->lpData + skip_bytes, b->dwBytesRecorded - skip_bytes);
+			recorded_frames += (b->dwBytesRecorded - skip_bytes) / frame_bytes;
+			
+			break;
+		}
+	}
+	
+	/* Purge old buffers */
+	
+	for(std::list<WAVEHDR>::iterator b = audio_buffers.begin(); b != audio_buffers.end(); b++) {
 		delete b->lpData;
 	}
+	
+	audio_buffers.clear();
 }
