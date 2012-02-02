@@ -69,6 +69,8 @@ bool com_init = false;		/* COM has been initialized in the main thread */
 
 reg_handle wa_options(HKEY_CURRENT_USER, "Software\\Team17SoftwareLTD\\WormsArmageddon\\Options", KEY_QUERY_VALUE | KEY_SET_VALUE, false);
 
+INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+
 std::string get_window_string(HWND hwnd) {
 	char buf[1024];
 	
@@ -382,6 +384,11 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						
 						break;
 					}
+					
+					case ADV_OPTIONS: {
+						DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_OPTIONS), hwnd, &options_dproc);
+						break;
+					}
 				}
 				
 				return TRUE;
@@ -506,7 +513,7 @@ std::string ffmpeg_cmdline(const encoder_info &format, const std::string &captur
 	std::string audio_in = escape_filename(capture_dir + "\\" + FRAME_PREFIX + "audio.wav");
 	std::string video_out = escape_filename(video_path);
 	
-	std::string cmdline = "ffmpeg.exe -threads 0 -y -r " + to_string(config.frame_rate) + " -i \"" + frames_in + "\"";
+	std::string cmdline = "ffmpeg.exe -threads " + to_string(config.max_enc_threads) + " -y -r " + to_string(config.frame_rate) + " -i \"" + frames_in + "\"";
 	
 	if(config.enable_audio) {
 		cmdline.append(std::string(" -i \"") + audio_in + "\"");
@@ -627,6 +634,51 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	return FALSE;
 }
 
+INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+	switch(msg) {
+		case WM_INITDIALOG: {
+			SetWindowText(GetDlgItem(hwnd, MAX_SKEW), to_string(config.max_skew).c_str());
+			SetWindowText(GetDlgItem(hwnd, AUDIO_BUF_TIME), to_string(config.audio_buf_time).c_str());
+			SetWindowText(GetDlgItem(hwnd, AUDIO_BUF_COUNT), to_string(config.audio_buf_count).c_str());
+			
+			SetWindowText(GetDlgItem(hwnd, MAX_ENC_THREADS), to_string(config.max_enc_threads).c_str());
+			
+			return TRUE;
+		}
+		
+		case WM_COMMAND: {
+			if(HIWORD(wp) == BN_CLICKED) {
+				if(LOWORD(wp) == IDOK) {
+					/* TODO: Check these values! */
+					
+					config.max_skew = strtoul(get_window_string(GetDlgItem(hwnd, MAX_SKEW)).c_str(), NULL, 10);
+					config.audio_buf_time = strtoul(get_window_string(GetDlgItem(hwnd, AUDIO_BUF_TIME)).c_str(), NULL, 10);
+					config.audio_buf_count = strtoul(get_window_string(GetDlgItem(hwnd, AUDIO_BUF_COUNT)).c_str(), NULL, 10);
+					
+					config.max_enc_threads = strtoul(get_window_string(GetDlgItem(hwnd, MAX_ENC_THREADS)).c_str(), NULL, 10);
+					
+					EndDialog(hwnd, 1);
+				}else if(LOWORD(wp) == IDCANCEL) {
+					PostMessage(hwnd, WM_CLOSE, 0, 0);
+				}
+			}
+			
+			return TRUE;
+		}
+		
+		case WM_CLOSE: {
+			EndDialog(hwnd, 0);
+			return TRUE;
+		}
+		
+		default: {
+			break;
+		}
+	}
+	
+	return FALSE;
+}
+
 int main(int argc, char **argv) {
 	InitCommonControls();
 	
@@ -666,6 +718,12 @@ int main(int argc, char **argv) {
 	config.enable_audio = reg.get_dword("enable_audio", true);
 	config.audio_source = reg.get_dword("audio_source", 0);
 	
+	config.audio_buf_time = reg.get_dword("audio_buf_time", 2);
+	config.audio_buf_count = reg.get_dword("audio_buf_time", 64);
+	config.max_skew = reg.get_dword("audio_buf_time", 5);
+	
+	config.max_enc_threads = reg.get_dword("max_enc_threads", 0);
+	
 	config.wa_detail_level = reg.get_dword("wa_detail_level", 0);
 	do_cleanup = reg.get_dword("do_cleanup", true);
 	
@@ -679,6 +737,12 @@ int main(int argc, char **argv) {
 		
 		reg.set_dword("enable_audio", config.enable_audio);
 		reg.set_dword("audio_source", config.audio_source);
+		
+		reg.set_dword("audio_buf_time", config.audio_buf_time);
+		reg.set_dword("audio_buf_count", config.audio_buf_count);
+		reg.set_dword("max_skew", config.max_skew);
+		
+		reg.set_dword("max_enc_threads", config.max_enc_threads);
 		
 		reg.set_dword("wa_detail_level", config.wa_detail_level);
 		reg.set_dword("do_cleanup", do_cleanup);

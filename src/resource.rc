@@ -19,6 +19,7 @@ MENU_MAIN MENU
     POPUP "Options"
     {
         MENUITEM "Select Worms Armageddon directoy...", SELECT_WA_DIR
+        MENUITEM "Advanced options...", ADV_OPTIONS
     }
 }
 
@@ -74,6 +75,28 @@ FONT 8, "Ms Shell Dlg"
 {
     DEFPUSHBUTTON   "OK", IDOK, 175, 75, 50, 14, WS_DISABLED
     EDITTEXT        LOG_EDIT, 5, 5, 220, 65, ES_AUTOHSCROLL | ES_MULTILINE | ES_READONLY
+}
+
+
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+DLG_OPTIONS DIALOG 0, 0, 169, 100
+STYLE DS_3DLOOK | DS_CENTER | DS_MODALFRAME | DS_SHELLFONT | WS_CAPTION | WS_VISIBLE | WS_POPUP | WS_SYSMENU
+CAPTION "Options"
+FONT 8, "Ms Shell Dlg"
+{
+    DEFPUSHBUTTON   "OK", IDOK, 115, 5, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 115, 22, 50, 14
+    GROUPBOX        "Audio Capture", IDC_STATIC, 5, 0, 105, 60
+    LTEXT           "Buffer count:", IDC_STATIC, 10, 41, 42, 8, SS_LEFT
+    EDITTEXT        MAX_SKEW, 55, 11, 45, 12, ES_AUTOHSCROLL
+    EDITTEXT        AUDIO_BUF_TIME, 55, 25, 45, 12, ES_AUTOHSCROLL
+    EDITTEXT        AUDIO_BUF_COUNT, 55, 40, 45, 12, ES_AUTOHSCROLL
+    LTEXT           "Max skew:", IDC_STATIC, 17, 13, 35, 8, SS_LEFT
+    LTEXT           "Buffer time:", IDC_STATIC, 16, 27, 36, 8, SS_LEFT
+    GROUPBOX        "Encoding", IDC_STATIC, 5, 65, 105, 30
+    EDITTEXT        MAX_ENC_THREADS, 55, 75, 45, 12, ES_AUTOHSCROLL
+    LTEXT           "Max threads:", IDC_STATIC, 10, 76, 42, 8, SS_LEFT
 }
 
 

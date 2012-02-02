@@ -25,6 +25,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "main.hpp"
+
 #define CHANNELS 2
 #define SAMPLE_RATE 44100
 #define SAMPLE_BITS 16
@@ -32,9 +34,9 @@
 #define BYTES_SEC (SAMPLE_RATE * BLOCK_ALIGN)
 
 // #define AUDIO_BUF_SIZE (BYTES_SEC * 4)
-#define AUDIO_BUF_SIZE 7056 /* 1/25th sec */
+// #define AUDIO_BUF_SIZE 7056 /* 1/25th sec */
 // #define AUDIO_BUF_SIZE 17640 /* 1/10th sec */
-#define MIN_AUDIO_BUFFERS 64
+// #define MIN_AUDIO_BUFFERS 64
 
 struct wav_hdr {
 	uint32_t chunk0_id;
@@ -78,7 +80,9 @@ struct audio_recorder {
 	HWAVEIN wavein;
 	std::list<WAVEHDR> buffers;
 	
-	audio_recorder(unsigned int device_id, HANDLE ev);
+	unsigned int buf_size;
+	
+	audio_recorder(const arec_config &config, HANDLE ev);
 	~audio_recorder();
 	
 	void start();

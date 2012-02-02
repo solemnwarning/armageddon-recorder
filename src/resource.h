@@ -7,10 +7,12 @@
 #define MENU_MAIN                               104
 #define ICON32                                  107
 #define ICON16                                  108
+#define DLG_OPTIONS                             110
 #define AUDIO_SOURCE                            1000
 #define FRAMES_SEC                              1001
 #define LOG_EDIT                                1001
 #define TIME_START                              1002
+#define AUDIO_BUF_COUNT                         1006
 #define REPLAY_PATH                             1010
 #define AVI_PATH                                1011
 #define RES_X                                   1014
@@ -21,4 +23,8 @@
 #define VIDEO_FORMAT                            1020
 #define DO_CLEANUP                              1023
 #define SELECT_WA_DIR                           40000
+#define ADV_OPTIONS                             40001
 #define WA_DETAIL                               40002
+#define MAX_SKEW                                40004
+#define MAX_ENC_THREADS                         40005
+#define AUDIO_BUF_TIME                          40006

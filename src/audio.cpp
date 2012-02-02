@@ -22,7 +22,7 @@
 
 #include "audio.hpp"
 
-audio_recorder::audio_recorder(unsigned int device_id, HANDLE ev): event(ev) {
+audio_recorder::audio_recorder(const arec_config &config, HANDLE ev): event(ev) {
 	WAVEFORMATEX format;
 	format.wFormatTag = WAVE_FORMAT_PCM;
 	format.nChannels = CHANNELS;
@@ -32,9 +32,11 @@ audio_recorder::audio_recorder(unsigned int device_id, HANDLE ev): event(ev) {
 	format.wBitsPerSample = SAMPLE_BITS;
 	format.cbSize = 0;
 	
+	buf_size = ((CHANNELS * (SAMPLE_BITS / 8) * SAMPLE_RATE) / config.frame_rate) * config.audio_buf_time;
+	
 	MMRESULT err = waveInOpen(
 		&wavein,
-		device_id,
+		config.audio_source,
 		&format,
 		(DWORD_PTR)event,
 		(DWORD_PTR)GetModuleHandle(NULL),
@@ -43,7 +45,7 @@ audio_recorder::audio_recorder(unsigned int device_id, HANDLE ev): event(ev) {
 	
 	assert(err == MMSYSERR_NOERROR);
 	
-	for(int i = 0; i < MIN_AUDIO_BUFFERS; i++) {
+	for(unsigned int i = 0; i < config.audio_buf_count; i++) {
 		add_buffer();
 	}
 }
@@ -73,8 +75,8 @@ void audio_recorder::add_buffer() {
 	WAVEHDR header;
 	
 	memset(&header, 0, sizeof(header));
-	header.lpData = new char[AUDIO_BUF_SIZE];
-	header.dwBufferLength = AUDIO_BUF_SIZE;
+	header.lpData = new char[buf_size];
+	header.dwBufferLength = buf_size;
 	
 	buffers.push_back(header);
 	
