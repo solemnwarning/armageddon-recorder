@@ -34,6 +34,10 @@ struct arec_config {
 	bool enable_audio;
 	unsigned int audio_source;
 	
+	unsigned int audio_rate;
+	unsigned int audio_channels;
+	unsigned int audio_bits;
+	
 	unsigned int audio_buf_time;
 	unsigned int audio_buf_count;
 	unsigned int max_skew;

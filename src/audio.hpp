@@ -27,16 +27,12 @@
 
 #include "main.hpp"
 
-#define CHANNELS 2
-#define SAMPLE_RATE 44100
-#define SAMPLE_BITS 16
-#define BLOCK_ALIGN (CHANNELS * (SAMPLE_BITS / 8))
-#define BYTES_SEC (SAMPLE_RATE * BLOCK_ALIGN)
+#define WAVE_FORMAT_96M08 0x00010000
+#define WAVE_FORMAT_96S08 0x00020000
+#define WAVE_FORMAT_96M16 0x00040000
+#define WAVE_FORMAT_96S16 0x00080000
 
-// #define AUDIO_BUF_SIZE (BYTES_SEC * 4)
-// #define AUDIO_BUF_SIZE 7056 /* 1/25th sec */
-// #define AUDIO_BUF_SIZE 17640 /* 1/10th sec */
-// #define MIN_AUDIO_BUFFERS 64
+extern std::vector<WAVEINCAPS> audio_sources;
 
 struct wav_hdr {
 	uint32_t chunk0_id;
@@ -92,10 +88,6 @@ struct audio_recorder {
 	std::list<WAVEHDR> get_buffers();
 };
 
-std::vector<WAVEINCAPS> get_audio_sources();
-
-std::string wave_error(MMRESULT errnum);
-
 struct wav_writer {
 	wav_hdr header;
 	FILE *file;
@@ -103,7 +95,7 @@ struct wav_writer {
 	unsigned int sample_size;
 	unsigned int sample_rate;
 	
-	wav_writer(const std::string &filename, int channels, int rate, int width);
+	wav_writer(const arec_config &config, const std::string &filename);
 	~wav_writer();
 	
 	void force_length(size_t samples);
@@ -111,5 +103,11 @@ struct wav_writer {
 	void write_at(size_t offset, const void *data, size_t size);
 	void append_data(const void *data, size_t size);
 };
+
+std::vector<WAVEINCAPS> get_audio_sources();
+
+std::string wave_error(MMRESULT errnum);
+
+bool test_audio_format(unsigned int source_id, unsigned int rate, unsigned int channels, unsigned int bits);
 
 #endif /* !AREC_AUDIO_HPP */

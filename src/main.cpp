@@ -239,10 +239,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			ComboBox_AddString(audio_list, "None");
 			ComboBox_SetCurSel(audio_list, 0);
 			
-			std::vector<WAVEINCAPS> sources = get_audio_sources();
-			
-			for(unsigned int i = 0; i < sources.size(); i++) {
-				ComboBox_AddString(audio_list, sources[i].szPname);
+			for(unsigned int i = 0; i < audio_sources.size(); i++) {
+				ComboBox_AddString(audio_list, audio_sources[i].szPname);
 				
 				if(config.enable_audio && (i == config.audio_source || i == 0)) {
 					ComboBox_SetCurSel(audio_list, i + 1);
@@ -303,6 +301,11 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						
 						config.audio_source = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_SOURCE));
 						config.enable_audio = (config.audio_source-- > 0);
+						
+						if(config.enable_audio && !test_audio_format(config.audio_source, config.audio_rate, config.audio_channels, config.audio_bits)) {
+							MessageBox(hwnd, "Selected audio format (rate, channels, bits) is not supported by audio device", NULL, MB_OK | MB_ICONERROR);
+							break;
+						}
 						
 						std::string rx_string = get_window_string(GetDlgItem(hwnd, RES_X));
 						std::string ry_string = get_window_string(GetDlgItem(hwnd, RES_Y));
@@ -684,6 +687,46 @@ INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			SetWindowText(GetDlgItem(hwnd, AUDIO_BUF_TIME), to_string(config.audio_buf_time).c_str());
 			SetWindowText(GetDlgItem(hwnd, AUDIO_BUF_COUNT), to_string(config.audio_buf_count).c_str());
 			
+			HWND list = GetDlgItem(hwnd, AUDIO_RATE);
+			set_combo_height(list);
+			
+			ComboBox_AddString(list, "11.025 kHz");
+			ComboBox_AddString(list, "22.05 kHz");
+			ComboBox_AddString(list, "44.1 kHz");
+			ComboBox_AddString(list, "96 kHz");
+			
+			switch(config.audio_rate) {
+				case 11025:
+					ComboBox_SetCurSel(list, 0);
+					break;
+					
+				case 22050:
+					ComboBox_SetCurSel(list, 1);
+					break;
+					
+				case 44100:
+					ComboBox_SetCurSel(list, 2);
+					break;
+				
+				case 96000:
+					ComboBox_SetCurSel(list, 3);
+					break;
+			};
+			
+			list = GetDlgItem(hwnd, AUDIO_CHANNELS);
+			set_combo_height(list);
+			
+			ComboBox_AddString(list, "Mono");
+			ComboBox_AddString(list, "Stereo");
+			ComboBox_SetCurSel(list, config.audio_channels - 1);
+			
+			list = GetDlgItem(hwnd, AUDIO_WIDTH);
+			set_combo_height(list);
+			
+			ComboBox_AddString(list, "8-bit");
+			ComboBox_AddString(list, "16-bit");
+			ComboBox_SetCurSel(list, config.audio_bits / 8 - 1);
+			
 			SetWindowText(GetDlgItem(hwnd, MAX_ENC_THREADS), to_string(config.max_enc_threads).c_str());
 			
 			return TRUE;
@@ -697,6 +740,29 @@ INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 					config.max_skew = strtoul(get_window_string(GetDlgItem(hwnd, MAX_SKEW)).c_str(), NULL, 10);
 					config.audio_buf_time = strtoul(get_window_string(GetDlgItem(hwnd, AUDIO_BUF_TIME)).c_str(), NULL, 10);
 					config.audio_buf_count = strtoul(get_window_string(GetDlgItem(hwnd, AUDIO_BUF_COUNT)).c_str(), NULL, 10);
+					
+					unsigned int rate = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_RATE));
+					
+					switch(rate) {
+						case 0:
+							config.audio_rate = 11025;
+							break;
+							
+						case 1:
+							config.audio_rate = 22050;
+							break;
+							
+						case 2:
+							config.audio_rate = 44100;
+							break;
+							
+						case 3:
+							config.audio_rate = 96000;
+							break;
+					}
+					
+					config.audio_channels = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_CHANNELS)) + 1;
+					config.audio_bits = (ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_WIDTH)) + 1) * 8;
 					
 					config.max_enc_threads = strtoul(get_window_string(GetDlgItem(hwnd, MAX_ENC_THREADS)).c_str(), NULL, 10);
 					
@@ -724,6 +790,8 @@ INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 int main(int argc, char **argv) {
 	InitCommonControls();
+	
+	audio_sources = get_audio_sources();
 	
 	reg_handle reg(HKEY_CURRENT_USER, "Software\\Armageddon Recorder", KEY_QUERY_VALUE | KEY_SET_VALUE, true);
 	
@@ -769,6 +837,10 @@ int main(int argc, char **argv) {
 	config.enable_audio = reg.get_dword("enable_audio", true);
 	config.audio_source = reg.get_dword("audio_source", 0);
 	
+	config.audio_rate = reg.get_dword("audio_sample_rate", 44100);
+	config.audio_bits = reg.get_dword("audio_sample_width", 16);
+	config.audio_channels = reg.get_dword("audio_channels", 2);
+	
 	config.audio_buf_time = reg.get_dword("audio_buf_time", 2);
 	config.audio_buf_count = reg.get_dword("audio_buf_time", 64);
 	config.max_skew = reg.get_dword("audio_buf_time", 5);
@@ -794,6 +866,10 @@ int main(int argc, char **argv) {
 		
 		reg.set_dword("enable_audio", config.enable_audio);
 		reg.set_dword("audio_source", config.audio_source);
+		
+		reg.set_dword("audio_sample_rate", config.audio_rate);
+		reg.set_dword("audio_sample_width", config.audio_bits);
+		reg.set_dword("audio_channels", config.audio_channels);
 		
 		reg.set_dword("audio_buf_time", config.audio_buf_time);
 		reg.set_dword("audio_buf_count", config.audio_buf_count);

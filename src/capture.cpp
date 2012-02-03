@@ -67,7 +67,7 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const
 		assert((audio_event = CreateEvent(NULL, FALSE, FALSE, NULL)));
 		audio_rec = new audio_recorder(config, audio_event);
 		
-		wav_out = new wav_writer(capture_path + "\\" + FRAME_PREFIX + "audio.wav", CHANNELS, SAMPLE_RATE, SAMPLE_BITS);
+		wav_out = new wav_writer(config, capture_path + "\\" + FRAME_PREFIX + "audio.wav");
 	}
 	
 	recorded_frames = 0;

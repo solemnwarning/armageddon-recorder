@@ -22,17 +22,19 @@
 
 #include "audio.hpp"
 
+std::vector<WAVEINCAPS> audio_sources;
+
 audio_recorder::audio_recorder(const arec_config &config, HANDLE ev): event(ev) {
 	WAVEFORMATEX format;
 	format.wFormatTag = WAVE_FORMAT_PCM;
-	format.nChannels = CHANNELS;
-	format.nSamplesPerSec = SAMPLE_RATE;
-	format.nAvgBytesPerSec = BYTES_SEC;
-	format.nBlockAlign = BLOCK_ALIGN;
-	format.wBitsPerSample = SAMPLE_BITS;
+	format.nChannels = config.audio_channels;
+	format.nSamplesPerSec = config.audio_rate;
+	format.nAvgBytesPerSec = config.audio_channels * (config.audio_bits / 8) * config.audio_rate;
+	format.nBlockAlign = config.audio_channels * (config.audio_bits / 8);
+	format.wBitsPerSample = config.audio_bits;
 	format.cbSize = 0;
 	
-	buf_size = ((CHANNELS * (SAMPLE_BITS / 8) * SAMPLE_RATE) / config.frame_rate) * config.audio_buf_time;
+	buf_size = (format.nAvgBytesPerSec / config.frame_rate) * config.audio_buf_time;
 	
 	MMRESULT err = waveInOpen(
 		&wavein,
@@ -126,15 +128,15 @@ std::string wave_error(MMRESULT errnum) {
 	return err;
 }
 
-wav_writer::wav_writer(const std::string &filename, int channels, int rate, int width) {
-	sample_size = channels * (width / 8);
-	sample_rate = rate;
+wav_writer::wav_writer(const arec_config &config, const std::string &filename) {
+	sample_size = config.audio_channels * (config.audio_bits / 8);
+	sample_rate = config.audio_rate;
 	
-	header.chunk1_channels = channels;
-	header.chunk1_sample_rate = rate;
-	header.chunk1_bits_sample = width;
+	header.chunk1_channels = config.audio_channels;
+	header.chunk1_sample_rate = config.audio_rate;
+	header.chunk1_bits_sample = config.audio_bits;
 	
-	header.chunk1_byte_rate = rate * sample_size;
+	header.chunk1_byte_rate = config.audio_rate * sample_size;
 	header.chunk1_align = sample_size;
 	
 	assert((file = fopen(filename.c_str(), "wb")));
@@ -186,4 +188,41 @@ void wav_writer::append_data(const void *data, size_t size) {
 	header.chunk2_size += size;
 	
 	write_at(0, &header, sizeof(header));
+}
+
+/* Test that the requested capture format is supported by the source device */
+
+#define MATCH_FORMAT(rate, channels, bits, fb) \
+	case ((rate << 6) | (channels << 5) | bits): \
+		fbit = fb; \
+		break;
+
+bool test_audio_format(unsigned int source_id, unsigned int rate, unsigned int channels, unsigned int bits) {
+	unsigned int format = (rate << 6) | (channels << 5) | bits, fbit = 0;
+	
+	/* Use seperate bits for the supported rates/channels/bits? Nonsense! */
+	
+	switch(format) {
+		MATCH_FORMAT(11025, 1, 8, WAVE_FORMAT_1M08);
+		MATCH_FORMAT(11025, 2, 8, WAVE_FORMAT_1S08);
+		MATCH_FORMAT(11025, 1, 16, WAVE_FORMAT_1M16);
+		MATCH_FORMAT(11025, 2, 16, WAVE_FORMAT_1S16);
+		
+		MATCH_FORMAT(22050, 1, 8, WAVE_FORMAT_2M08);
+		MATCH_FORMAT(22050, 2, 8, WAVE_FORMAT_2S08);
+		MATCH_FORMAT(22050, 1, 16, WAVE_FORMAT_2M16);
+		MATCH_FORMAT(22050, 2, 16, WAVE_FORMAT_2S16);
+		
+		MATCH_FORMAT(44100, 1, 8, WAVE_FORMAT_4M08);
+		MATCH_FORMAT(44100, 2, 8, WAVE_FORMAT_4S08);
+		MATCH_FORMAT(44100, 1, 16, WAVE_FORMAT_4M16);
+		MATCH_FORMAT(44100, 2, 16, WAVE_FORMAT_4S16);
+		
+		MATCH_FORMAT(96000, 1, 8, WAVE_FORMAT_96M08);
+		MATCH_FORMAT(96000, 2, 8, WAVE_FORMAT_96S08);
+		MATCH_FORMAT(96000, 1, 16, WAVE_FORMAT_96M16);
+		MATCH_FORMAT(96000, 2, 16, WAVE_FORMAT_96S16);
+	};
+	
+	return (audio_sources[source_id].dwFormats & fbit ? true : false);
 }
