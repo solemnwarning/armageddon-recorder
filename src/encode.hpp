@@ -39,7 +39,13 @@ struct encoder_info {
 	encoder_info(const std::string &n, type_enum t, double bps, const char *vf, const char *af, const char *ext): name(n), type(t), bps_pix(bps), default_ext(ext), video_format(vf), audio_format(af) {}
 };
 
+struct audio_encoder {
+	const char *name;
+	const char *desc;
+};
+
 extern std::vector<encoder_info> encoders;
+extern audio_encoder audio_encoders[];
 
 void load_encoders();
 

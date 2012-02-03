@@ -66,6 +66,7 @@ arec_config config;
 
 std::string video_path;
 unsigned int video_format = 2;
+unsigned int audio_format;
 
 bool do_cleanup;
 
@@ -270,6 +271,15 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			ComboBox_SetCurSel(chat_list, config.wa_chat_behaviour);
 			set_combo_height(chat_list);
 			
+			HWND audio_fmt_list = GetDlgItem(hwnd, AUDIO_FORMAT_MENU);
+			
+			for(unsigned int i = 0; audio_encoders[i].name; i++) {
+				ComboBox_AddString(audio_fmt_list, audio_encoders[i].desc);
+			}
+			
+			ComboBox_SetCurSel(audio_fmt_list, audio_format);
+			set_combo_height(audio_fmt_list);
+			
 			Button_SetCheck(GetDlgItem(hwnd, DO_CLEANUP), (do_cleanup ? BST_CHECKED : BST_UNCHECKED));
 			
 			goto VIDEO_ENABLE;
@@ -289,6 +299,7 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						replay_path = get_window_string(GetDlgItem(hwnd, REPLAY_PATH));
 						video_path = get_window_string(GetDlgItem(hwnd, AVI_PATH));
 						video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
+						audio_format = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_FORMAT_MENU));
 						
 						config.audio_source = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_SOURCE));
 						config.enable_audio = (config.audio_source-- > 0);
@@ -551,7 +562,7 @@ std::string ffmpeg_cmdline(const encoder_info &format, const std::string &captur
 		cmdline.append(std::string(" -i \"") + audio_in + "\"");
 	}
 	
-	cmdline.append(std::string(" -vcodec ") + format.video_format + " -acodec " + format.audio_format);
+	cmdline.append(std::string(" -vcodec ") + format.video_format + " -acodec " + audio_encoders[audio_format].name);
 	
 	if(format.name == "H.264 (Lossless)") {
 		cmdline.append(" -qmin 0 -qmax 0");
@@ -742,6 +753,14 @@ int main(int argc, char **argv) {
 		}
 	}
 	
+	fmt = reg.get_string("audio_format");
+	
+	for(unsigned int i = 0; audio_encoders[i].name; i++) {
+		if(fmt == std::string(audio_encoders[i].name) || i == 0) {
+			audio_format = i;
+		}
+	}
+	
 	config.width = reg.get_dword("res_x", 640);
 	config.height = reg.get_dword("res_y", 480);
 	
@@ -766,6 +785,7 @@ int main(int argc, char **argv) {
 	
 	while(DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_MAIN), NULL, &main_dproc)) {
 		reg.set_string("selected_encoder", encoders[video_format].name);
+		reg.set_string("audio_format", audio_encoders[audio_format].name);
 		
 		reg.set_dword("res_x", config.width);
 		reg.set_dword("res_y", config.height);

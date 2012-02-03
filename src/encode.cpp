@@ -22,6 +22,14 @@
 
 std::vector<encoder_info> encoders;
 
+audio_encoder audio_encoders[] = {
+	{"libvo_aacenc", "AAC"},
+	{"vorbis", "Ogg Vorbis"},
+	{"flac", "FLAC"},
+	{"pcm_s16le", "16-bit PCM (Uncompressed)"},
+	{NULL, NULL}
+};
+
 std::string fcc_to_string(DWORD fcc) {
 	char buf[8];
 	memcpy(buf, &fcc, 4);
@@ -49,6 +57,8 @@ void load_encoders() {
 	ADD_ENCODER("H.264 (Medium quality)", encoder_info::ffmpeg, 0.98, "libx264 -pix_fmt yuvj420p", "libvo_aacenc", "mp4");
 	ADD_ENCODER("H.264 (High quality)", encoder_info::ffmpeg, 3.6, "libx264 -pix_fmt yuvj444p", "libvo_aacenc", "mp4");
 	ADD_ENCODER("H.264 (Lossless)", encoder_info::ffmpeg, 0, "libx264rgb", "libvo_aacenc", "mp4");
+	
+	ADD_ENCODER("ZMBV", encoder_info::ffmpeg, 0, "zmbv", "", "mkv");
 	
 	ADD_ENCODER("Uncompressed AVI", encoder_info::ffmpeg, 0, "rawvideo -pix_fmt bgr24", "pcm_s16le", "avi");
 }
