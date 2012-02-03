@@ -55,7 +55,8 @@ const char *detail_levels[] = {
 const char *chat_levels[] = {
 	"Show nothing",
 	"Show telephone",
-	"Show messages"
+	"Show messages",
+	NULL
 };
 
 std::string replay_path;
@@ -207,6 +208,13 @@ std::string choose_dir(HWND parent, const std::string &title, const std::string 
 	return ret;
 }
 
+void set_combo_height(HWND combo) {
+	RECT rect;
+	
+	GetWindowRect(combo, &rect);
+	SetWindowPos(combo, 0, 0, 0, rect.right - rect.left, LIST_HEIGHT, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
+}
+
 INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	switch(msg) {
 		case WM_INITDIALOG: {
@@ -220,11 +228,10 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			
 			for(unsigned int i = 0; i < encoders.size(); i++) {
 				ComboBox_AddString(fmt_list, encoders[i].name.c_str());
-				
-				if(i == video_format) {
-					ComboBox_SetCurSel(fmt_list, i);
-				}
 			}
+			
+			ComboBox_SetCurSel(fmt_list, video_format);
+			set_combo_height(fmt_list);
 			
 			HWND audio_list = GetDlgItem(hwnd, AUDIO_SOURCE);
 			
@@ -241,6 +248,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 				}
 			}
 			
+			set_combo_height(audio_list);
+			
 			SetWindowText(GetDlgItem(hwnd, FRAMES_SEC), to_string(config.frame_rate).c_str());
 			
 			HWND detail_list = GetDlgItem(hwnd, WA_DETAIL);
@@ -250,6 +259,7 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			}
 			
 			ComboBox_SetCurSel(detail_list, config.wa_detail_level);
+			set_combo_height(detail_list);
 			
 			HWND chat_list = GetDlgItem(hwnd, WA_CHAT);
 			
@@ -258,6 +268,7 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			}
 			
 			ComboBox_SetCurSel(chat_list, config.wa_chat_behaviour);
+			set_combo_height(chat_list);
 			
 			Button_SetCheck(GetDlgItem(hwnd, DO_CLEANUP), (do_cleanup ? BST_CHECKED : BST_UNCHECKED));
 			
