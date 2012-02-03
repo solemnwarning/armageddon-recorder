@@ -21,6 +21,7 @@
 #include <windows.h>
 #include <string>
 #include <list>
+#include <map>
 
 #include "audio.hpp"
 #include "main.hpp"
@@ -53,9 +54,7 @@ struct wa_capture {
 	char *worms_cmdline;
 	HANDLE worms_process;
 	
-	unsigned int orig_detail_level;
-	unsigned int orig_disable_phone;
-	unsigned int orig_chat_pinned;
+	std::map<const char*,DWORD> original_options;
 	
 	audio_recorder *audio_rec;
 	HANDLE audio_event;
@@ -77,6 +76,8 @@ struct wa_capture {
 	unsigned int count_frames();
 	
 	void flush_audio();
+	
+	void set_option(const char *name, DWORD value, DWORD def_value = 0);
 };
 
 #endif /* !AREC_CAPTURE_HPP */

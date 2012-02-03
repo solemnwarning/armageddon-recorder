@@ -316,6 +316,7 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						}
 						
 						config.wa_detail_level = ComboBox_GetCurSel(GetDlgItem(hwnd, WA_DETAIL));
+						config.wa_chat_behaviour = ComboBox_GetCurSel(GetDlgItem(hwnd, WA_CHAT));
 						
 						do_cleanup = Button_GetCheck(GetDlgItem(hwnd, DO_CLEANUP));
 						

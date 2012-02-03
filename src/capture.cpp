@@ -75,14 +75,9 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const
 	
 	/* Set WA options */
 	
-	orig_detail_level = wa_options.get_dword("DetailLevel", 0);
-	wa_options.set_dword("DetailLevel", conf.wa_detail_level);
-	
-	orig_disable_phone = wa_options.get_dword("DisablePhone", 0);
-	wa_options.set_dword("DisablePhone", (conf.wa_chat_behaviour == 1 ? 0 : 1));
-	
-	orig_chat_pinned = wa_options.get_dword("ChatPinned", 0);
-	wa_options.set_dword("ChatPinned", (conf.wa_chat_behaviour == 2 ? 1 : 0));
+	set_option("DetailLevel", conf.wa_detail_level, 5);
+	set_option("DisablePhone", (conf.wa_chat_behaviour == 1 ? 0 : 1));
+	set_option("ChatPinned", (conf.wa_chat_behaviour == 2 ? 1 : 0));
 	
 	log_push("Starting WA...\r\n");
 	
@@ -129,9 +124,9 @@ wa_capture::~wa_capture() {
 	
 	/* Restore original WA options */
 	
-	wa_options.set_dword("DetailLevel", orig_detail_level);
-	wa_options.set_dword("DisablePhone", orig_disable_phone);
-	wa_options.set_dword("ChatPinned", orig_chat_pinned);
+	for(std::map<const char*,DWORD>::iterator i = original_options.begin(); i != original_options.end(); i++) {
+		wa_options.set_dword(i->first, i->second);
+	}
 	
 	if(config.enable_audio) {
 		delete wav_out;
@@ -285,4 +280,9 @@ void wa_capture::flush_audio() {
 	}
 	
 	audio_buffers.clear();
+}
+
+void wa_capture::set_option(const char *name, DWORD value, DWORD def_value) {
+	original_options.insert(std::make_pair<const char*,DWORD>(name, wa_options.get_dword(name, def_value)));
+	wa_options.set_dword(name, value);
 }
