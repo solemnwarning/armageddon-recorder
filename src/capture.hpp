@@ -54,6 +54,8 @@ struct wa_capture {
 	HANDLE worms_process;
 	
 	unsigned int orig_detail_level;
+	unsigned int orig_disable_phone;
+	unsigned int orig_chat_pinned;
 	
 	audio_recorder *audio_rec;
 	HANDLE audio_event;

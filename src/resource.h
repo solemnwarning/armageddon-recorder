@@ -12,6 +12,7 @@
 #define FRAMES_SEC                              1001
 #define LOG_EDIT                                1001
 #define TIME_START                              1002
+#define WA_CHAT                                 1004
 #define AUDIO_BUF_COUNT                         1006
 #define REPLAY_PATH                             1010
 #define AVI_PATH                                1011

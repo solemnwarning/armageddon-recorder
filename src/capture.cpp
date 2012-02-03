@@ -78,6 +78,12 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const
 	orig_detail_level = wa_options.get_dword("DetailLevel", 0);
 	wa_options.set_dword("DetailLevel", conf.wa_detail_level);
 	
+	orig_disable_phone = wa_options.get_dword("DisablePhone", 0);
+	wa_options.set_dword("DisablePhone", (conf.wa_chat_behaviour == 1 ? 0 : 1));
+	
+	orig_chat_pinned = wa_options.get_dword("ChatPinned", 0);
+	wa_options.set_dword("ChatPinned", (conf.wa_chat_behaviour == 2 ? 1 : 0));
+	
 	log_push("Starting WA...\r\n");
 	
 	std::string cmdline = "\"" + wa_path + "\\wa.exe\" /getvideo"
@@ -124,6 +130,8 @@ wa_capture::~wa_capture() {
 	/* Restore original WA options */
 	
 	wa_options.set_dword("DetailLevel", orig_detail_level);
+	wa_options.set_dword("DisablePhone", orig_disable_phone);
+	wa_options.set_dword("ChatPinned", orig_chat_pinned);
 	
 	if(config.enable_audio) {
 		delete wav_out;

@@ -52,6 +52,12 @@ const char *detail_levels[] = {
 	NULL
 };
 
+const char *chat_levels[] = {
+	"Show nothing",
+	"Show telephone",
+	"Show messages"
+};
+
 std::string replay_path;
 std::string start_time, end_time;
 
@@ -241,11 +247,17 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			
 			for(unsigned int i = 0; detail_levels[i]; i++) {
 				ComboBox_AddString(detail_list, detail_levels[i]);
-				
-				if(i == config.wa_detail_level) {
-					ComboBox_SetCurSel(detail_list, i);
-				}
 			}
+			
+			ComboBox_SetCurSel(detail_list, config.wa_detail_level);
+			
+			HWND chat_list = GetDlgItem(hwnd, WA_CHAT);
+			
+			for(unsigned int i = 0; chat_levels[i]; i++) {
+				ComboBox_AddString(chat_list, chat_levels[i]);
+			}
+			
+			ComboBox_SetCurSel(chat_list, config.wa_chat_behaviour);
 			
 			Button_SetCheck(GetDlgItem(hwnd, DO_CLEANUP), (do_cleanup ? BST_CHECKED : BST_UNCHECKED));
 			
@@ -339,12 +351,16 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						openfile.lpstrFilter = "Worms Armageddon replay (*.WAgame)\0*.WAgame\0All Files\0*\0";
 						openfile.lpstrFile = filename;
 						openfile.nMaxFile = sizeof(filename);
+						openfile.lpstrInitialDir = (config.replay_dir.length() ? config.replay_dir.c_str() : NULL);
 						openfile.lpstrTitle = "Select replay";
 						openfile.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 						
 						if(GetOpenFileName(&openfile)) {
 							replay_path = filename;
 							SetWindowText(GetDlgItem(hwnd, REPLAY_PATH), replay_path.c_str());
+							
+							config.replay_dir = replay_path;
+							config.replay_dir.erase(config.replay_dir.find_last_of('\\'));
 						}else if(CommDlgExtendedError()) {
 							MessageBox(hwnd, std::string("GetOpenFileName: " + to_string(CommDlgExtendedError())).c_str(), NULL, MB_OK | MB_ICONERROR);
 						}
@@ -362,6 +378,7 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						openfile.hwndOwner = hwnd;
 						openfile.lpstrFile = filename;
 						openfile.nMaxFile = sizeof(filename);
+						openfile.lpstrInitialDir = (config.video_dir.length() ? config.video_dir.c_str() : NULL);
 						openfile.lpstrTitle = "Save video as...";
 						openfile.Flags = OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
 						openfile.lpstrDefExt = encoders[video_format].default_ext;
@@ -369,6 +386,9 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						if(GetSaveFileName(&openfile)) {
 							video_path = filename;
 							SetWindowText(GetDlgItem(hwnd, AVI_PATH), video_path.c_str());
+							
+							config.video_dir = video_path;
+							config.video_dir.erase(config.video_dir.find_last_of('\\'));
 						}else if(CommDlgExtendedError()) {
 							MessageBox(hwnd, std::string("GetSaveFileName: " + to_string(CommDlgExtendedError())).c_str(), NULL, MB_OK | MB_ICONERROR);
 						}
@@ -725,7 +745,12 @@ int main(int argc, char **argv) {
 	config.max_enc_threads = reg.get_dword("max_enc_threads", 0);
 	
 	config.wa_detail_level = reg.get_dword("wa_detail_level", 0);
+	config.wa_chat_behaviour = reg.get_dword("wa_chat_behaviour", 0);
+	
 	do_cleanup = reg.get_dword("do_cleanup", true);
+	
+	config.replay_dir = reg.get_string("replay_dir");
+	config.video_dir = reg.get_string("video_dir");
 	
 	while(DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_MAIN), NULL, &main_dproc)) {
 		reg.set_string("selected_encoder", encoders[video_format].name);
@@ -745,7 +770,12 @@ int main(int argc, char **argv) {
 		reg.set_dword("max_enc_threads", config.max_enc_threads);
 		
 		reg.set_dword("wa_detail_level", config.wa_detail_level);
+		reg.set_dword("wa_chat_behaviour", config.wa_chat_behaviour);
+		
 		reg.set_dword("do_cleanup", do_cleanup);
+		
+		reg.set_string("replay_dir", config.replay_dir);
+		reg.set_string("video_dir", config.video_dir);
 		
 		reg.set_string("wa_path", wa_path);
 		
