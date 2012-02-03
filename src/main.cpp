@@ -24,7 +24,6 @@
 #include <list>
 #include <string>
 #include <iostream>
-#include <sstream>
 #include <vector>
 #include <stdlib.h>
 #include <stdio.h>
@@ -85,13 +84,6 @@ std::string get_window_string(HWND hwnd) {
 	GetWindowText(hwnd, buf, sizeof(buf));
 	return buf;
 }
-
-template<class T> std::string to_string(const T& in) {
-	std::stringstream os;
-	os << in;
-	
-	return os.str();
-};
 
 /* Test if a start/end time is in valid format. An empty string is valid */
 bool validate_time(const std::string &time) {
@@ -269,6 +261,10 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			ComboBox_SetCurSel(chat_list, config.wa_chat_behaviour);
 			set_combo_height(chat_list);
 			
+			CheckMenuItem(GetMenu(hwnd), WA_LOCK_CAMERA, config.wa_lock_camera ? MF_CHECKED : MF_UNCHECKED);
+			CheckMenuItem(GetMenu(hwnd), WA_BIGGER_FONT, config.wa_bigger_fonts ? MF_CHECKED : MF_UNCHECKED);
+			CheckMenuItem(GetMenu(hwnd), WA_TRANSPARENT_LABELS, config.wa_transparent_labels ? MF_CHECKED : MF_UNCHECKED);
+			
 			HWND audio_fmt_list = GetDlgItem(hwnd, AUDIO_FORMAT_MENU);
 			
 			for(unsigned int i = 0; audio_encoders[i].name; i++) {
@@ -433,6 +429,24 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 					
 					case ADV_OPTIONS: {
 						DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_OPTIONS), hwnd, &options_dproc);
+						break;
+					}
+					
+					case WA_LOCK_CAMERA: {
+						config.wa_lock_camera = !config.wa_lock_camera;
+						CheckMenuItem(GetMenu(hwnd), WA_LOCK_CAMERA, config.wa_lock_camera ? MF_CHECKED : MF_UNCHECKED);
+						break;
+					}
+					
+					case WA_BIGGER_FONT: {
+						config.wa_bigger_fonts = !config.wa_bigger_fonts;
+						CheckMenuItem(GetMenu(hwnd), WA_BIGGER_FONT, config.wa_bigger_fonts ? MF_CHECKED : MF_UNCHECKED);
+						break;
+					}
+					
+					case WA_TRANSPARENT_LABELS: {
+						config.wa_transparent_labels = !config.wa_transparent_labels;
+						CheckMenuItem(GetMenu(hwnd), WA_TRANSPARENT_LABELS, config.wa_transparent_labels ? MF_CHECKED : MF_UNCHECKED);
 						break;
 					}
 				}
@@ -849,6 +863,9 @@ int main(int argc, char **argv) {
 	
 	config.wa_detail_level = reg.get_dword("wa_detail_level", 0);
 	config.wa_chat_behaviour = reg.get_dword("wa_chat_behaviour", 0);
+	config.wa_lock_camera = reg.get_dword("wa_lock_camera", true);
+	config.wa_bigger_fonts = reg.get_dword("wa_bigger_fonts", true);
+	config.wa_transparent_labels = reg.get_dword("wa_transparent_labels", true);
 	
 	do_cleanup = reg.get_dword("do_cleanup", true);
 	
@@ -879,6 +896,9 @@ int main(int argc, char **argv) {
 		
 		reg.set_dword("wa_detail_level", config.wa_detail_level);
 		reg.set_dword("wa_chat_behaviour", config.wa_chat_behaviour);
+		reg.set_dword("wa_lock_camera", config.wa_lock_camera);
+		reg.set_dword("wa_bigger_fonts", config.wa_bigger_fonts);
+		reg.set_dword("wa_transparent_labels", config.wa_transparent_labels);
 		
 		reg.set_dword("do_cleanup", do_cleanup);
 		

@@ -18,11 +18,21 @@
 #ifndef AREC_MAIN_HPP
 #define AREC_MAIN_HPP
 
+#include <string>
+#include <sstream>
+
 #include "reg.hpp"
 
 #define LIST_HEIGHT 200
 
 extern reg_handle wa_options;
+
+template<class T> std::string to_string(const T& in) {
+	std::stringstream os;
+	os << in;
+	
+	return os.str();
+};
 
 struct arec_config {
 	std::string replay_dir;
@@ -46,6 +56,9 @@ struct arec_config {
 	
 	unsigned int wa_detail_level;
 	unsigned int wa_chat_behaviour;
+	bool wa_lock_camera;
+	bool wa_bigger_fonts;
+	bool wa_transparent_labels;
 };
 
 #endif /* !AREC_MAIN_HPP */

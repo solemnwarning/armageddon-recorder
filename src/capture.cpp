@@ -29,13 +29,6 @@ extern std::string wa_path;
 
 extern HWND progress_dialog;
 
-template<class T> std::string to_string(const T& in) {
-	std::stringstream os;
-	os << in;
-	
-	return os.str();
-};
-
 static DWORD WINAPI capture_worker_init(LPVOID this_ptr) {
 	wa_capture *t = (wa_capture*)this_ptr;
 	t->worker_main();
@@ -78,6 +71,9 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const
 	set_option("DetailLevel", conf.wa_detail_level, 5);
 	set_option("DisablePhone", (conf.wa_chat_behaviour == 1 ? 0 : 1));
 	set_option("ChatPinned", (conf.wa_chat_behaviour == 2 ? 1 : 0));
+	set_option("HomeLock", config.wa_lock_camera);
+	set_option("LargerFonts", config.wa_bigger_fonts);
+	set_option("InfoTransparency", config.wa_transparent_labels);
 	
 	log_push("Starting WA...\r\n");
 	
@@ -240,7 +236,7 @@ void wa_capture::flush_audio() {
 					 * out of sync.
 					*/
 					
-					if(recorded_frames + ALLOWED_AUDIO_SKEW >= p_buf_start) {
+					if(recorded_frames + config.max_skew >= p_buf_start) {
 						return;
 					}
 					

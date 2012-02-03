@@ -27,7 +27,10 @@
 #define SELECT_WA_DIR                           40000
 #define ADV_OPTIONS                             40001
 #define WA_DETAIL                               40002
+#define WA_LOCK_CAMERA                          40002
+#define WA_BIGGER_FONT                          40003
 #define MAX_SKEW                                40004
+#define WA_TRANSPARENT_LABELS                   40004
 #define MAX_ENC_THREADS                         40005
 #define AUDIO_BUF_TIME                          40006
 #define AUDIO_RATE                              40010

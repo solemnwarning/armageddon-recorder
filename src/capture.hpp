@@ -27,8 +27,6 @@
 #include "main.hpp"
 
 #define FRAME_PREFIX "arec_"
-#define SYNC_FRAMES 25
-#define ALLOWED_AUDIO_SKEW 5
 
 #define WM_WAEXIT WM_USER+1
 #define WM_PUSHLOG WM_USER+2

@@ -20,6 +20,10 @@ MENU_MAIN MENU
     {
         MENUITEM "Select Worms Armageddon directoy...", SELECT_WA_DIR
         MENUITEM "Advanced options...", ADV_OPTIONS
+        MENUITEM SEPARATOR
+        MENUITEM "Lock camera to active worm", WA_LOCK_CAMERA
+        MENUITEM "Use bigger worm label font", WA_BIGGER_FONT
+        MENUITEM "Use semi-transparent worm labels", WA_TRANSPARENT_LABELS
     }
 }
 
