@@ -34,9 +34,8 @@ struct encoder_info {
 	const char *default_ext;
 	
 	const char *video_format;
-	const char *audio_format;
 	
-	encoder_info(const std::string &n, type_enum t, double bps, const char *vf, const char *af, const char *ext): name(n), type(t), bps_pix(bps), default_ext(ext), video_format(vf), audio_format(af) {}
+	encoder_info(const std::string &n, type_enum t, double bps, const char *vf, const char *ext): name(n), type(t), bps_pix(bps), default_ext(ext), video_format(vf) {}
 };
 
 struct audio_encoder {
