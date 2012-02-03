@@ -70,6 +70,7 @@ unsigned int audio_format;
 bool do_cleanup;
 
 std::string wa_path;
+bool wormkit_present = false;
 
 HWND progress_dialog = NULL;
 bool com_init = false;		/* COM has been initialized in the main thread */
@@ -213,6 +214,9 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 		case WM_INITDIALOG: {
 			SendMessage(hwnd, WM_SETICON, 0, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON16)));
 			SendMessage(hwnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON32)));
+			
+			EnableMenuItem(GetMenu(hwnd), USE_WORMKIT_EXE, wormkit_present ? MF_ENABLED : MF_GRAYED);
+			CheckMenuItem(GetMenu(hwnd), USE_WORMKIT_EXE, config.use_wormkit_exe ? MF_CHECKED : MF_UNCHECKED);
 			
 			SetWindowText(GetDlgItem(hwnd, RES_X), to_string(config.width).c_str());
 			SetWindowText(GetDlgItem(hwnd, RES_Y), to_string(config.height).c_str());
@@ -422,8 +426,17 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						std::string dir = choose_dir(hwnd, "Select Worms Armageddon directory:", "wa.exe");
 						if(!dir.empty()) {
 							wa_path = dir;
+							
+							wormkit_present = (GetFileAttributes(std::string(wa_path + "\\WormKit.exe").c_str()) != INVALID_FILE_ATTRIBUTES);
+							EnableMenuItem(GetMenu(hwnd), USE_WORMKIT_EXE, wormkit_present ? MF_ENABLED : MF_GRAYED);
 						}
 						
+						break;
+					}
+					
+					case USE_WORMKIT_EXE: {
+						config.use_wormkit_exe = !config.use_wormkit_exe;
+						CheckMenuItem(GetMenu(hwnd), USE_WORMKIT_EXE, config.use_wormkit_exe ? MF_CHECKED : MF_UNCHECKED);
 						break;
 					}
 					
@@ -824,6 +837,9 @@ int main(int argc, char **argv) {
 		}
 	}
 	
+	config.use_wormkit_exe = reg.get_dword("use_wormkit_exe", false);
+	wormkit_present = (GetFileAttributes(std::string(wa_path + "\\WormKit.exe").c_str()) != INVALID_FILE_ATTRIBUTES);
+	
 	std::string fmt = reg.get_string("selected_encoder", "Uncompressed AVI");
 	
 	load_encoders();
@@ -906,6 +922,7 @@ int main(int argc, char **argv) {
 		reg.set_string("video_dir", config.video_dir);
 		
 		reg.set_string("wa_path", wa_path);
+		reg.set_dword("use_wormkit_exe", config.use_wormkit_exe);
 		
 		if(!DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_PROGRESS), NULL, &prog_dproc)) {
 			break;

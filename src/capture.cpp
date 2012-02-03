@@ -75,9 +75,11 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const
 	set_option("LargerFonts", config.wa_bigger_fonts);
 	set_option("InfoTransparency", config.wa_transparent_labels);
 	
-	log_push("Starting WA...\r\n");
+	const char *exe = (wormkit_present && config.use_wormkit_exe ? "WormKit.exe" : "WA.exe");
 	
-	std::string cmdline = "\"" + wa_path + "\\wa.exe\" /getvideo"
+	log_push(std::string("Starting ") + exe + "...\r\n");
+	
+	std::string cmdline = "\"" + wa_path + "\\" + exe + "\" /getvideo"
 		" \"" + replay_path + "\""
 		" \"" + to_string((double)50 / (double)config.frame_rate) + "\""
 		" \"" + start + "\" \"" + end + "\""

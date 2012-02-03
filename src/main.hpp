@@ -25,6 +25,7 @@
 
 #define LIST_HEIGHT 200
 
+extern bool wormkit_present;
 extern reg_handle wa_options;
 
 template<class T> std::string to_string(const T& in) {
@@ -59,6 +60,8 @@ struct arec_config {
 	bool wa_lock_camera;
 	bool wa_bigger_fonts;
 	bool wa_transparent_labels;
+	
+	bool use_wormkit_exe;
 };
 
 #endif /* !AREC_MAIN_HPP */
