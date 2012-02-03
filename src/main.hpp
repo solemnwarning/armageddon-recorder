@@ -61,7 +61,7 @@ struct arec_config {
 	bool wa_bigger_fonts;
 	bool wa_transparent_labels;
 	
-	bool use_wormkit_exe;
+	bool load_wormkit_dlls;
 };
 
 #endif /* !AREC_MAIN_HPP */

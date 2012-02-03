@@ -209,14 +209,21 @@ void set_combo_height(HWND combo) {
 	SetWindowPos(combo, 0, 0, 0, rect.right - rect.left, LIST_HEIGHT, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
 }
 
+void check_wormkit() {
+	wormkit_present = (
+		GetFileAttributes(std::string(wa_path + "\\madCHook.dll").c_str()) != INVALID_FILE_ATTRIBUTES &&
+		GetFileAttributes(std::string(wa_path + "\\HookLib.dll").c_str()) != INVALID_FILE_ATTRIBUTES
+	);
+}
+
 INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	switch(msg) {
 		case WM_INITDIALOG: {
 			SendMessage(hwnd, WM_SETICON, 0, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON16)));
 			SendMessage(hwnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON32)));
 			
-			EnableMenuItem(GetMenu(hwnd), USE_WORMKIT_EXE, wormkit_present ? MF_ENABLED : MF_GRAYED);
-			CheckMenuItem(GetMenu(hwnd), USE_WORMKIT_EXE, config.use_wormkit_exe ? MF_CHECKED : MF_UNCHECKED);
+			EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_present ? MF_ENABLED : MF_GRAYED);
+			CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, config.load_wormkit_dlls ? MF_CHECKED : MF_UNCHECKED);
 			
 			SetWindowText(GetDlgItem(hwnd, RES_X), to_string(config.width).c_str());
 			SetWindowText(GetDlgItem(hwnd, RES_Y), to_string(config.height).c_str());
@@ -427,16 +434,16 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						if(!dir.empty()) {
 							wa_path = dir;
 							
-							wormkit_present = (GetFileAttributes(std::string(wa_path + "\\WormKit.exe").c_str()) != INVALID_FILE_ATTRIBUTES);
-							EnableMenuItem(GetMenu(hwnd), USE_WORMKIT_EXE, wormkit_present ? MF_ENABLED : MF_GRAYED);
+							check_wormkit();
+							EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_present ? MF_ENABLED : MF_GRAYED);
 						}
 						
 						break;
 					}
 					
-					case USE_WORMKIT_EXE: {
-						config.use_wormkit_exe = !config.use_wormkit_exe;
-						CheckMenuItem(GetMenu(hwnd), USE_WORMKIT_EXE, config.use_wormkit_exe ? MF_CHECKED : MF_UNCHECKED);
+					case LOAD_WORMKIT_DLLS: {
+						config.load_wormkit_dlls = !config.load_wormkit_dlls;
+						CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, config.load_wormkit_dlls ? MF_CHECKED : MF_UNCHECKED);
 						break;
 					}
 					
@@ -837,8 +844,8 @@ int main(int argc, char **argv) {
 		}
 	}
 	
-	config.use_wormkit_exe = reg.get_dword("use_wormkit_exe", false);
-	wormkit_present = (GetFileAttributes(std::string(wa_path + "\\WormKit.exe").c_str()) != INVALID_FILE_ATTRIBUTES);
+	config.load_wormkit_dlls = reg.get_dword("load_wormkit_dlls", false);
+	check_wormkit();
 	
 	std::string fmt = reg.get_string("selected_encoder", "Uncompressed AVI");
 	
@@ -922,7 +929,7 @@ int main(int argc, char **argv) {
 		reg.set_string("video_dir", config.video_dir);
 		
 		reg.set_string("wa_path", wa_path);
-		reg.set_dword("use_wormkit_exe", config.use_wormkit_exe);
+		reg.set_dword("load_wormkit_dlls", config.load_wormkit_dlls);
 		
 		if(!DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_PROGRESS), NULL, &prog_dproc)) {
 			break;

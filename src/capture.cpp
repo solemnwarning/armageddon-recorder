@@ -22,6 +22,8 @@
 #include "capture.hpp"
 #include "audio.hpp"
 
+typedef BOOL WINAPI (*CreateProcessExA_ptr)(LPCTSTR,LPTSTR,LPSECURITY_ATTRIBUTES,LPSECURITY_ATTRIBUTES,BOOL,DWORD,LPVOID,LPCTSTR,LPSTARTUPINFO,LPPROCESS_INFORMATION,LPCTSTR);
+
 void delete_frames(const std::string &dir);
 void log_push(const std::string &msg);
 
@@ -75,11 +77,7 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const
 	set_option("LargerFonts", config.wa_bigger_fonts);
 	set_option("InfoTransparency", config.wa_transparent_labels);
 	
-	const char *exe = (wormkit_present && config.use_wormkit_exe ? "WormKit.exe" : "WA.exe");
-	
-	log_push(std::string("Starting ") + exe + "...\r\n");
-	
-	std::string cmdline = "\"" + wa_path + "\\" + exe + "\" /getvideo"
+	std::string cmdline = "\"" + wa_path + "\\WA.exe\" /getvideo"
 		" \"" + replay_path + "\""
 		" \"" + to_string((double)50 / (double)config.frame_rate) + "\""
 		" \"" + start + "\" \"" + end + "\""
@@ -95,7 +93,21 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf, const
 	
 	PROCESS_INFORMATION pinfo;
 	
-	assert(CreateProcess(NULL, worms_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo));
+	if(wormkit_present && config.load_wormkit_dlls) {
+		log_push("Loading madCHook...\r\n");
+		assert((madchook = LoadLibrary(std::string(wa_path + "\\madCHook.dll").c_str())));
+		
+		CreateProcessExA_ptr CreateProcessExA = (CreateProcessExA_ptr)GetProcAddress(madchook, "CreateProcessExA");
+		assert(CreateProcessExA);
+		
+		log_push("Starting WA...\r\n");
+		assert(CreateProcessExA(NULL, worms_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo, std::string(wa_path + "\\HookLib.dll").c_str()));
+	}else{
+		madchook = NULL;
+		
+		log_push("Starting WA...\r\n");
+		assert(CreateProcess(NULL, worms_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo));
+	}
 	
 	worms_process = pinfo.hProcess;
 	CloseHandle(pinfo.hThread);
@@ -119,6 +131,10 @@ wa_capture::~wa_capture() {
 	
 	CloseHandle(worms_process);
 	delete worms_cmdline;
+	
+	if(madchook) {
+		FreeLibrary(madchook);
+	}
 	
 	/* Restore original WA options */
 	

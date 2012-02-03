@@ -52,6 +52,8 @@ struct wa_capture {
 	char *worms_cmdline;
 	HANDLE worms_process;
 	
+	HMODULE madchook;
+	
 	std::map<const char*,DWORD> original_options;
 	
 	audio_recorder *audio_rec;

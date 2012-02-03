@@ -18,8 +18,8 @@ MENU_MAIN MENU
 {
     POPUP "Options"
     {
-        MENUITEM "Select Worms Armageddon directoy...", SELECT_WA_DIR
-        MENUITEM "Launch WormKit.exe instead of WA.exe", USE_WORMKIT_EXE
+        MENUITEM "Select Worms Armageddon directory...", SELECT_WA_DIR
+        MENUITEM "Load WormKit modules", LOAD_WORMKIT_DLLS
         MENUITEM "Advanced options...", ADV_OPTIONS
         MENUITEM SEPARATOR
         MENUITEM "Lock camera to active worm", WA_LOCK_CAMERA
