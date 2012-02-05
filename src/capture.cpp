@@ -235,6 +235,7 @@ void wa_capture::flush_audio() {
 	}
 	
 	size_t frame_bytes = (wav_out->sample_rate * wav_out->sample_size) / config.frame_rate;
+	size_t frame_samples = wav_out->sample_rate / config.frame_rate;
 	
 	while(frames > recorded_frames) {
 		ssize_t buf_start = frames;
@@ -258,6 +259,9 @@ void wa_capture::flush_audio() {
 						return;
 					}
 					
+					wav_out->extend_sample((p_buf_start - recorded_frames) * frame_samples);
+					
+					/*
 					size_t pad_bytes = (p_buf_start - recorded_frames) * frame_bytes;
 					
 					char *zbuf = new char[pad_bytes];
@@ -267,6 +271,7 @@ void wa_capture::flush_audio() {
 					recorded_frames += p_buf_start - recorded_frames;
 					
 					delete zbuf;
+					*/
 					
 					b--;
 				}else{

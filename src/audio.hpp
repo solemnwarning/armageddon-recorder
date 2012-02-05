@@ -95,6 +95,8 @@ struct wav_writer {
 	unsigned int sample_size;
 	unsigned int sample_rate;
 	
+	char *last_sample;
+	
 	wav_writer(const arec_config &config, const std::string &filename);
 	~wav_writer();
 	
@@ -102,6 +104,8 @@ struct wav_writer {
 	
 	void write_at(size_t offset, const void *data, size_t size);
 	void append_data(const void *data, size_t size);
+	
+	void extend_sample(size_t samples);
 };
 
 std::vector<WAVEINCAPS> get_audio_sources();

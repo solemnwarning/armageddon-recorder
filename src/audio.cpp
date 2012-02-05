@@ -140,9 +140,13 @@ wav_writer::wav_writer(const arec_config &config, const std::string &filename) {
 	header.chunk1_align = sample_size;
 	
 	assert((file = fopen(filename.c_str(), "wb")));
+	
+	last_sample = new char[sample_size];
+	memset(last_sample, 0, sample_size);
 }
 
 wav_writer::~wav_writer() {
+	delete last_sample;
 	fclose(file);
 }
 
@@ -182,12 +186,26 @@ void wav_writer::write_at(size_t offset, const void *data, size_t size) {
 void wav_writer::append_data(const void *data, size_t size) {
 	assert((size % sample_size) == 0);
 	
+	memcpy(last_sample, ((char*)data) + size - sample_size, sample_size);
+	
 	write_at(sizeof(header) + header.chunk2_size, data, size);
 	
 	header.chunk0_size += size;
 	header.chunk2_size += size;
 	
 	write_at(0, &header, sizeof(header));
+}
+
+void wav_writer::extend_sample(size_t samples) {
+	char *buf = new char[sample_size * samples];
+	
+	for(size_t i = 0; i < samples; i++) {
+		memcpy(buf + i * sample_size, last_sample, sample_size);
+	}
+	
+	append_data(buf, samples * sample_size);
+	
+	delete buf;
 }
 
 /* Test that the requested capture format is supported by the source device */
