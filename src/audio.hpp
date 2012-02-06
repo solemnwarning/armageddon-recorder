@@ -108,6 +108,21 @@ struct wav_writer {
 	void extend_sample(size_t samples);
 };
 
+struct wav_reader {
+	FILE *file;
+	
+	unsigned int sample_size;
+	
+	wav_reader(const std::string &filename);
+	~wav_reader();
+	
+	void reset();
+	void skip_samples(size_t samples);
+	
+	size_t read_data(void *buf, size_t size, size_t max);
+	size_t read_samples(void *buf, size_t max_samples);
+};
+
 std::vector<WAVEINCAPS> get_audio_sources();
 
 std::string wave_error(MMRESULT errnum);

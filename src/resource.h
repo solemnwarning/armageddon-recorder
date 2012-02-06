@@ -34,6 +34,7 @@
 #define LOAD_WORMKIT_DLLS                       40005
 #define MAX_ENC_THREADS                         40005
 #define AUDIO_BUF_TIME                          40006
+#define DO_SECOND_PASS                          40006
 #define AUDIO_RATE                              40010
 #define AUDIO_CHANNELS                          40011
 #define AUDIO_WIDTH                             40012

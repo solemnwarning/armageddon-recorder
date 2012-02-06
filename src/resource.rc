@@ -21,6 +21,7 @@ MENU_MAIN MENU
         MENUITEM "Select Worms Armageddon directory...", SELECT_WA_DIR
         MENUITEM "Load WormKit modules", LOAD_WORMKIT_DLLS
         MENUITEM "Advanced options...", ADV_OPTIONS
+        MENUITEM "Do second pass for audio sync", DO_SECOND_PASS
         MENUITEM SEPARATOR
         MENUITEM "Lock camera to active worm", WA_LOCK_CAMERA
         MENUITEM "Use bigger worm label font", WA_BIGGER_FONT

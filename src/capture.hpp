@@ -22,11 +22,16 @@
 #include <string>
 #include <list>
 #include <map>
+#include <vector>
 
 #include "audio.hpp"
 #include "main.hpp"
 
 #define FRAME_PREFIX "arec_"
+
+#define PASS_SYNC_BUF_SECS	30
+#define PASS_SYNC_MEAN_FRAMES	8
+#define PASS_SYNC_CMP_FRAMES	200
 
 #define WM_WAEXIT WM_USER+1
 #define WM_PUSHLOG WM_USER+2
@@ -64,10 +69,12 @@ struct wa_capture {
 	size_t recorded_frames;
 	std::list<WAVEHDR> audio_buffers;
 	
+	int this_pass;
+	
 	/* Cached result of count_frames() */
 	size_t last_frame_count;
 	
-	wa_capture(const std::string &replay, const arec_config &conf, const std::string &start, const std::string &end);
+	wa_capture(const std::string &replay, const arec_config &conf);
 	~wa_capture();
 	
 	void worker_main();
@@ -76,8 +83,14 @@ struct wa_capture {
 	unsigned int count_frames();
 	
 	void flush_audio();
+	void pass2_flush();
 	
 	void set_option(const char *name, DWORD value, DWORD def_value = 0);
+	
+	void start_wa(const std::string &cmdline);
+	
+	std::vector<int16_t> gen_averages(char *raw_pcm, size_t samples);
+	unsigned int calc_variation(const std::vector<int16_t> &a, size_t a_min, const std::vector<int16_t> &b, size_t b_min);
 };
 
 #endif /* !AREC_CAPTURE_HPP */

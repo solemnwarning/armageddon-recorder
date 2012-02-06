@@ -59,7 +59,6 @@ const char *chat_levels[] = {
 };
 
 std::string replay_path;
-std::string start_time, end_time;
 
 arec_config config;
 
@@ -225,6 +224,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_present ? MF_ENABLED : MF_GRAYED);
 			CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, config.load_wormkit_dlls ? MF_CHECKED : MF_UNCHECKED);
 			
+			CheckMenuItem(GetMenu(hwnd), DO_SECOND_PASS, config.do_second_pass ? MF_CHECKED : MF_UNCHECKED);
+			
 			SetWindowText(GetDlgItem(hwnd, RES_X), to_string(config.width).c_str());
 			SetWindowText(GetDlgItem(hwnd, RES_Y), to_string(config.height).c_str());
 			
@@ -334,15 +335,15 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						
 						config.frame_rate = atoi(fps_text.c_str());
 						
-						start_time = get_window_string(GetDlgItem(hwnd, TIME_START));
-						end_time = get_window_string(GetDlgItem(hwnd, TIME_END));
+						config.start_time = get_window_string(GetDlgItem(hwnd, TIME_START));
+						config.end_time = get_window_string(GetDlgItem(hwnd, TIME_END));
 						
-						if(!validate_time(start_time)) {
+						if(!validate_time(config.start_time)) {
 							MessageBox(hwnd, "Invalid start time", NULL, MB_OK | MB_ICONERROR);
 							break;
 						}
 						
-						if(!validate_time(end_time)) {
+						if(!validate_time(config.end_time)) {
 							MessageBox(hwnd, "Invalid end time", NULL, MB_OK | MB_ICONERROR);
 							break;
 						}
@@ -449,6 +450,12 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 					
 					case ADV_OPTIONS: {
 						DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_OPTIONS), hwnd, &options_dproc);
+						break;
+					}
+					
+					case DO_SECOND_PASS: {
+						config.do_second_pass = !config.do_second_pass;
+						CheckMenuItem(GetMenu(hwnd), DO_SECOND_PASS, config.do_second_pass ? MF_CHECKED : MF_UNCHECKED);
 						break;
 					}
 					
@@ -653,7 +660,7 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 		}
 		
 		case WM_BEGIN: {
-			capture = new wa_capture(replay_path, config, start_time, end_time);
+			capture = new wa_capture(replay_path, config);
 			capture_path = capture->capture_path;
 			
 			return TRUE;
@@ -873,6 +880,7 @@ int main(int argc, char **argv) {
 	
 	config.enable_audio = reg.get_dword("enable_audio", true);
 	config.audio_source = reg.get_dword("audio_source", 0);
+	config.do_second_pass = reg.get_dword("do_second_pass", false);
 	
 	config.audio_rate = reg.get_dword("audio_sample_rate", 44100);
 	config.audio_bits = reg.get_dword("audio_sample_width", 16);
@@ -906,6 +914,7 @@ int main(int argc, char **argv) {
 		
 		reg.set_dword("enable_audio", config.enable_audio);
 		reg.set_dword("audio_source", config.audio_source);
+		reg.set_dword("do_second_pass", config.do_second_pass);
 		
 		reg.set_dword("audio_sample_rate", config.audio_rate);
 		reg.set_dword("audio_sample_width", config.audio_bits);

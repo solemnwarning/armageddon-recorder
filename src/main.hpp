@@ -42,8 +42,11 @@ struct arec_config {
 	unsigned int width, height;
 	unsigned int frame_rate;
 	
+	std::string start_time, end_time;
+	
 	bool enable_audio;
 	unsigned int audio_source;
+	bool do_second_pass;
 	
 	unsigned int audio_rate;
 	unsigned int audio_channels;

@@ -210,37 +210,78 @@ void wav_writer::extend_sample(size_t samples) {
 
 /* Test that the requested capture format is supported by the source device */
 
-#define MATCH_FORMAT(rate, channels, bits, fb) \
-	case ((rate << 6) | (channels << 5) | bits): \
-		fbit = fb; \
-		break;
+#define MATCH_FORMAT(r, c, b, sb) \
+	if(rate == r && channels == c && bits == b && audio_sources[source_id].dwFormats & sb) { \
+		return true; \
+	}
 
 bool test_audio_format(unsigned int source_id, unsigned int rate, unsigned int channels, unsigned int bits) {
-	unsigned int format = (rate << 6) | (channels << 5) | bits, fbit = 0;
-	
 	/* Use seperate bits for the supported rates/channels/bits? Nonsense! */
 	
-	switch(format) {
-		MATCH_FORMAT(11025, 1, 8, WAVE_FORMAT_1M08);
-		MATCH_FORMAT(11025, 2, 8, WAVE_FORMAT_1S08);
-		MATCH_FORMAT(11025, 1, 16, WAVE_FORMAT_1M16);
-		MATCH_FORMAT(11025, 2, 16, WAVE_FORMAT_1S16);
-		
-		MATCH_FORMAT(22050, 1, 8, WAVE_FORMAT_2M08);
-		MATCH_FORMAT(22050, 2, 8, WAVE_FORMAT_2S08);
-		MATCH_FORMAT(22050, 1, 16, WAVE_FORMAT_2M16);
-		MATCH_FORMAT(22050, 2, 16, WAVE_FORMAT_2S16);
-		
-		MATCH_FORMAT(44100, 1, 8, WAVE_FORMAT_4M08);
-		MATCH_FORMAT(44100, 2, 8, WAVE_FORMAT_4S08);
-		MATCH_FORMAT(44100, 1, 16, WAVE_FORMAT_4M16);
-		MATCH_FORMAT(44100, 2, 16, WAVE_FORMAT_4S16);
-		
-		MATCH_FORMAT(96000, 1, 8, WAVE_FORMAT_96M08);
-		MATCH_FORMAT(96000, 2, 8, WAVE_FORMAT_96S08);
-		MATCH_FORMAT(96000, 1, 16, WAVE_FORMAT_96M16);
-		MATCH_FORMAT(96000, 2, 16, WAVE_FORMAT_96S16);
-	};
+	MATCH_FORMAT(11025, 1, 8, WAVE_FORMAT_1M08);
+	MATCH_FORMAT(11025, 2, 8, WAVE_FORMAT_1S08);
+	MATCH_FORMAT(11025, 1, 16, WAVE_FORMAT_1M16);
+	MATCH_FORMAT(11025, 2, 16, WAVE_FORMAT_1S16);
 	
-	return (audio_sources[source_id].dwFormats & fbit ? true : false);
+	MATCH_FORMAT(22050, 1, 8, WAVE_FORMAT_2M08);
+	MATCH_FORMAT(22050, 2, 8, WAVE_FORMAT_2S08);
+	MATCH_FORMAT(22050, 1, 16, WAVE_FORMAT_2M16);
+	MATCH_FORMAT(22050, 2, 16, WAVE_FORMAT_2S16);
+	
+	MATCH_FORMAT(44100, 1, 8, WAVE_FORMAT_4M08);
+	MATCH_FORMAT(44100, 2, 8, WAVE_FORMAT_4S08);
+	MATCH_FORMAT(44100, 1, 16, WAVE_FORMAT_4M16);
+	MATCH_FORMAT(44100, 2, 16, WAVE_FORMAT_4S16);
+	
+	MATCH_FORMAT(96000, 1, 8, WAVE_FORMAT_96M08);
+	MATCH_FORMAT(96000, 2, 8, WAVE_FORMAT_96S08);
+	MATCH_FORMAT(96000, 1, 16, WAVE_FORMAT_96M16);
+	MATCH_FORMAT(96000, 2, 16, WAVE_FORMAT_96S16);
+	
+	return false;
+}
+
+wav_reader::wav_reader(const std::string &filename) {
+	assert((file = fopen(filename.c_str(), "rb")));
+	
+	wav_hdr header;
+	assert(read_data(&header, sizeof(header), 1));
+	
+	sample_size = header.chunk1_channels * (header.chunk1_bits_sample / 8);
+}
+
+wav_reader::~wav_reader() {
+	fclose(file);
+}
+
+void wav_reader::reset() {
+	assert(fseek(file, sizeof(wav_hdr), SEEK_SET) == 0);
+}
+
+void wav_reader::skip_samples(size_t samples) {
+	assert(fseek(file, sample_size * samples, SEEK_CUR) == 0);
+}
+
+size_t wav_reader::read_data(void *buf, size_t size, size_t max) {
+	size_t blocks = 0, this_block = 0;
+	
+	while(blocks < max) {
+		while(this_block < size) {
+			this_block += fread((char*)buf + (size * blocks) + this_block, 1, size - this_block, file);
+			assert(!ferror(file));
+			
+			if(feof(file)) {
+				return blocks;
+			}
+		}
+		
+		this_block = 0;
+		blocks++;
+	}
+	
+	return blocks;
+}
+
+size_t wav_reader::read_samples(void *buf, size_t max_samples) {
+	return read_data(buf, sample_size, max_samples);
 }
