@@ -53,12 +53,12 @@ std::string wide_to_string(const WCHAR *wide) {
 void load_encoders() {
 	ADD_ENCODER("Don't create video", encoder_info::none, 0, NULL, NULL); // frames
 	
-	ADD_ENCODER("H.264 (Low quality)", encoder_info::ffmpeg, 0.325, "libx264 -pix_fmt yuvj420p", "mp4");
-	ADD_ENCODER("H.264 (Medium quality)", encoder_info::ffmpeg, 0.98, "libx264 -pix_fmt yuvj420p", "mp4");
-	ADD_ENCODER("H.264 (High quality)", encoder_info::ffmpeg, 3.6, "libx264 -pix_fmt yuvj444p", "mp4");
-	ADD_ENCODER("H.264 (Lossless)", encoder_info::ffmpeg, 0, "libx264rgb", "mp4");
+	ADD_ENCODER("H.264 (low quality)", encoder_info::ffmpeg, 0.325, "libx264 -pix_fmt yuvj420p", "mp4");
+	ADD_ENCODER("H.264 (medium quality)", encoder_info::ffmpeg, 0.98, "libx264 -pix_fmt yuvj420p", "mp4");
+	ADD_ENCODER("H.264 (high quality)", encoder_info::ffmpeg, 3.6, "libx264 -pix_fmt yuvj444p", "mp4");
+	ADD_ENCODER("H.264 (lossless)", encoder_info::ffmpeg, 0, "libx264rgb", "mp4");
 	
-	ADD_ENCODER("ZMBV", encoder_info::ffmpeg, 0, "zmbv", "mkv");
+	ADD_ENCODER("ZMBV (lossless, 256 colours)", encoder_info::ffmpeg, 0, "zmbv", "mkv");
 	
 	ADD_ENCODER("Uncompressed (raw) video", encoder_info::ffmpeg, 0, "rawvideo -pix_fmt bgr24", "avi");
 }
