@@ -458,7 +458,7 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples) {
 	samples *= config.audio_channels;
 	
 	size_t sample_size = config.audio_bits / 8;
-	size_t samples_per_avg = (config.audio_rate / (config.frame_rate / PASS_SYNC_MEAN_FRAMES)) * config.audio_channels;
+	size_t samples_per_avg = (config.audio_rate / config.frame_rate) * PASS_SYNC_MEAN_FRAMES * config.audio_channels;
 	
 	std::vector<int16_t> averages;
 	
