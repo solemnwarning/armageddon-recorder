@@ -33,6 +33,12 @@
 #define PASS_SYNC_MEAN_FRAMES	1
 #define PASS_SYNC_CMP_FRAMES	400
 
+/* Minimum/maximum "quiet" sample values for analysis pass. */
+#define PASS_SYNC_DEAD_8_MIN	98
+#define PASS_SYNC_DEAD_8_MAX	158
+#define PASS_SYNC_DEAD_16_MIN	-3932
+#define PASS_SYNC_DEAD_16_MAX	3932
+
 #define WM_WAEXIT WM_USER+1
 #define WM_PUSHLOG WM_USER+2
 
@@ -59,7 +65,7 @@ struct wa_capture {
 	
 	HMODULE madchook;
 	
-	std::map<const char*,DWORD> original_options;
+	std::map<std::string,DWORD> original_options;
 	
 	audio_recorder *audio_rec;
 	HANDLE audio_event;
@@ -89,7 +95,7 @@ struct wa_capture {
 	
 	void start_wa(const std::string &cmdline);
 	
-	std::vector<int16_t> gen_averages(char *raw_pcm, size_t samples);
+	std::vector<int16_t> gen_averages(char *raw_pcm, size_t samples, int16_t dead_val);
 	unsigned int calc_variation(const std::vector<int16_t> &a, size_t a_min, const std::vector<int16_t> &b, size_t b_min);
 };
 

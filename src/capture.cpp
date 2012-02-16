@@ -115,8 +115,8 @@ wa_capture::~wa_capture() {
 	
 	/* Restore original WA options */
 	
-	for(std::map<const char*,DWORD>::iterator i = original_options.begin(); i != original_options.end(); i++) {
-		wa_options.set_dword(i->first, i->second);
+	for(std::map<std::string,DWORD>::iterator i = original_options.begin(); i != original_options.end(); i++) {
+		wa_options.set_dword(i->first.c_str(), i->second);
 	}
 	
 	if(config.enable_audio) {
@@ -247,10 +247,10 @@ void wa_capture::worker_main() {
 						char *pcm_buf = new char[buf_size];
 						
 						size_t p1_samples = pass1.read_samples(pcm_buf, buf_samples);
-						std::vector<int16_t> p1_avgs = gen_averages(pcm_buf, p1_samples);
+						std::vector<int16_t> p1_avgs = gen_averages(pcm_buf, p1_samples, 32767);
 						
 						size_t p2_samples = pass2.read_samples(pcm_buf, buf_samples);
-						std::vector<int16_t> p2_avgs = gen_averages(pcm_buf, p2_samples);
+						std::vector<int16_t> p2_avgs = gen_averages(pcm_buf, p2_samples, -32768);
 						
 						size_t p1_max = p1_avgs.size() - PASS_SYNC_CMP_FRAMES / PASS_SYNC_MEAN_FRAMES;
 						size_t p2_max = p2_avgs.size() - PASS_SYNC_CMP_FRAMES / PASS_SYNC_MEAN_FRAMES;
@@ -451,7 +451,7 @@ void wa_capture::start_wa(const std::string &cmdline) {
 	CloseHandle(pinfo.hThread);
 }
 
-std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples) {
+std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int16_t dead_val) {
 	int avg = 0;
 	size_t avg_count = 0;
 	
@@ -463,7 +463,17 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples) {
 	std::vector<int16_t> averages;
 	
 	for(size_t s = 0; s + sample_size <= samples; s++) {
-		avg += (sample_size == 1 ? *(uint8_t*)(raw_pcm + s * sample_size) : *(int16_t*)(raw_pcm + s * sample_size));
+		int sample = (sample_size == 1 ? *(uint8_t*)(raw_pcm + s * sample_size) : *(int16_t*)(raw_pcm + s * sample_size));
+		
+		/* Replace any samples below a certain threshold with dead_val, used to reduce
+		 * the chance of synchronizing on background music or silence.
+		*/
+		
+		if((sample_size == 1 && (sample > PASS_SYNC_DEAD_8_MAX || sample < PASS_SYNC_DEAD_8_MIN)) || (sample_size == 2 && (sample > PASS_SYNC_DEAD_16_MAX || sample < PASS_SYNC_DEAD_16_MIN))) {
+			avg += sample;
+		}else{
+			avg += dead_val;
+		}
 		
 		if(++avg_count == samples_per_avg) {
 			averages.push_back(avg / avg_count);

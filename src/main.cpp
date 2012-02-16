@@ -85,6 +85,16 @@ std::string get_window_string(HWND hwnd) {
 	return buf;
 }
 
+size_t get_window_uint(HWND window) {
+	std::string s = get_window_string(window);
+	
+	if(s.empty() || strspn(s.c_str(), "1234567890") != s.length()) {
+		return -1;
+	}
+	
+	return strtoul(s.c_str(), NULL, 10);
+}
+
 /* Test if a start/end time is in valid format. An empty string is valid */
 bool validate_time(const std::string &time) {
 	int stage = 0;
@@ -721,6 +731,12 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	return FALSE;
 }
 
+#define UINT_IN(opt_var, window_id, opt_name) \
+	if((tmp.opt_var = get_window_uint(GetDlgItem(hwnd, window_id))) == -1) { \
+		MessageBox(hwnd, opt_name " must be an integer", NULL, MB_OK | MB_ICONERROR); \
+		break; \
+	}
+
 INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	switch(msg) {
 		case WM_INITDIALOG: {
@@ -776,36 +792,22 @@ INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 		case WM_COMMAND: {
 			if(HIWORD(wp) == BN_CLICKED) {
 				if(LOWORD(wp) == IDOK) {
-					/* TODO: Check these values! */
+					arec_config tmp = config;
 					
-					config.max_skew = strtoul(get_window_string(GetDlgItem(hwnd, MAX_SKEW)).c_str(), NULL, 10);
-					config.audio_buf_time = strtoul(get_window_string(GetDlgItem(hwnd, AUDIO_BUF_TIME)).c_str(), NULL, 10);
-					config.audio_buf_count = strtoul(get_window_string(GetDlgItem(hwnd, AUDIO_BUF_COUNT)).c_str(), NULL, 10);
+					UINT_IN(max_skew, MAX_SKEW, "Max skew");
+					UINT_IN(audio_buf_time, AUDIO_BUF_TIME, "Buffer time");
+					UINT_IN(audio_buf_count, AUDIO_BUF_COUNT, "Buffer count");
 					
-					unsigned int rate = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_RATE));
+					const unsigned int audio_rates[] = {11025, 22050, 44100, 96000};
 					
-					switch(rate) {
-						case 0:
-							config.audio_rate = 11025;
-							break;
-							
-						case 1:
-							config.audio_rate = 22050;
-							break;
-							
-						case 2:
-							config.audio_rate = 44100;
-							break;
-							
-						case 3:
-							config.audio_rate = 96000;
-							break;
-					}
+					tmp.audio_rate = audio_rates[ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_RATE))];
 					
-					config.audio_channels = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_CHANNELS)) + 1;
-					config.audio_bits = (ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_WIDTH)) + 1) * 8;
+					tmp.audio_channels = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_CHANNELS)) + 1;
+					tmp.audio_bits = (ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_WIDTH)) + 1) * 8;
 					
-					config.max_enc_threads = strtoul(get_window_string(GetDlgItem(hwnd, MAX_ENC_THREADS)).c_str(), NULL, 10);
+					UINT_IN(max_enc_threads, MAX_ENC_THREADS, "Max threads");
+					
+					config = tmp;
 					
 					EndDialog(hwnd, 1);
 				}else if(LOWORD(wp) == IDCANCEL) {
@@ -876,7 +878,7 @@ int main(int argc, char **argv) {
 	config.width = reg.get_dword("res_x", 640);
 	config.height = reg.get_dword("res_y", 480);
 	
-	config.frame_rate = reg.get_dword("frame_rate", 25);
+	config.frame_rate = reg.get_dword("frame_rate", 50);
 	
 	config.enable_audio = reg.get_dword("enable_audio", true);
 	config.audio_source = reg.get_dword("audio_source", 0);
@@ -896,7 +898,7 @@ int main(int argc, char **argv) {
 	config.wa_chat_behaviour = reg.get_dword("wa_chat_behaviour", 0);
 	config.wa_lock_camera = reg.get_dword("wa_lock_camera", true);
 	config.wa_bigger_fonts = reg.get_dword("wa_bigger_fonts", true);
-	config.wa_transparent_labels = reg.get_dword("wa_transparent_labels", true);
+	config.wa_transparent_labels = reg.get_dword("wa_transparent_labels", false);
 	
 	do_cleanup = reg.get_dword("do_cleanup", true);
 	
