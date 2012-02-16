@@ -163,8 +163,6 @@ static BOOL CALLBACK send1_hack(HWND hwnd, LPARAM wa_pid) {
 	if(window_pid == (DWORD)wa_pid) {
 		PostMessage(hwnd, WM_KEYDOWN, 0x31, 0);
 		PostMessage(hwnd, WM_KEYUP, 0x31, 0);
-		
-		return FALSE;
 	}
 	
 	return TRUE;
@@ -263,11 +261,15 @@ void wa_capture::worker_main() {
 						
 						char *pcm_buf = new char[buf_size];
 						
+						/* TODO: Work out higher/lower values to use here to
+						 * correctly compensate for quiet segments.
+						*/
+						
 						size_t p1_samples = pass1.read_samples(pcm_buf, buf_samples);
-						std::vector<int16_t> p1_avgs = gen_averages(pcm_buf, p1_samples, 32767);
+						std::vector<int16_t> p1_avgs = gen_averages(pcm_buf, p1_samples, 0);
 						
 						size_t p2_samples = pass2.read_samples(pcm_buf, buf_samples);
-						std::vector<int16_t> p2_avgs = gen_averages(pcm_buf, p2_samples, -32768);
+						std::vector<int16_t> p2_avgs = gen_averages(pcm_buf, p2_samples, 0);
 						
 						size_t p1_max = p1_avgs.size() - PASS_SYNC_CMP_FRAMES / PASS_SYNC_MEAN_FRAMES;
 						size_t p2_max = p2_avgs.size() - PASS_SYNC_CMP_FRAMES / PASS_SYNC_MEAN_FRAMES;
