@@ -23,6 +23,7 @@
 #include <list>
 #include <map>
 #include <vector>
+#include <time.h>
 
 #include "audio.hpp"
 #include "main.hpp"
@@ -38,6 +39,8 @@
 #define PASS_SYNC_DEAD_8_MAX	158
 #define PASS_SYNC_DEAD_16_MIN	-3932
 #define PASS_SYNC_DEAD_16_MAX	3932
+
+#define MAX_WA_LOAD_TIME 10
 
 #define WM_WAEXIT WM_USER+1
 #define WM_PUSHLOG WM_USER+2
@@ -62,6 +65,7 @@ struct wa_capture {
 	
 	char *worms_cmdline;
 	HANDLE worms_process;
+	time_t worms_started;
 	
 	HMODULE madchook;
 	

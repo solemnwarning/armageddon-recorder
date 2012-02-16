@@ -18,6 +18,7 @@
 #include <windows.h>
 #include <sstream>
 #include <assert.h>
+#include <time.h>
 
 #include "capture.hpp"
 #include "audio.hpp"
@@ -155,9 +156,25 @@ static inline bool memeq(void *ptr_a, void *ptr_b, size_t size) {
 	return true;
 }
 
+static BOOL CALLBACK send1_hack(HWND hwnd, LPARAM wa_pid) {
+	DWORD window_pid;
+	GetWindowThreadProcessId(hwnd, &window_pid);
+	
+	if(window_pid == (DWORD)wa_pid) {
+		PostMessage(hwnd, WM_KEYDOWN, 0x31, 0);
+		PostMessage(hwnd, WM_KEYUP, 0x31, 0);
+		
+		return FALSE;
+	}
+	
+	return TRUE;
+}
+
 void wa_capture::worker_main() {
 	HANDLE events[] = {force_exit, worms_process, audio_event};
 	int n_events = 2;
+	
+	time_t last_1 = 0;
 	
 	/* Audio recording isn't started until the worker thread starts executing
 	 * to reduce the chance of the buffers running out and causing the multimedia
@@ -170,7 +187,7 @@ void wa_capture::worker_main() {
 	}
 	
 	while(1) {
-		DWORD wait = WaitForMultipleObjects(n_events, events, FALSE, INFINITE);
+		DWORD wait = WaitForMultipleObjects(n_events, events, FALSE, 1000);
 		
 		switch(wait) {
 			case WAIT_OBJECT_0: {
@@ -303,6 +320,24 @@ void wa_capture::worker_main() {
 				PostMessage(progress_dialog, WM_WAEXIT, 0, 0);
 				
 				return;
+			}
+			
+			default:
+				break;
+		}
+		
+		/* Horrible, horrible hack. Send '1' to the WA process every 1 second
+		 * while running second pass.
+		*/
+		
+		if(this_pass == 2) {
+			time_t now = time(NULL);
+			
+			if((time_t)(worms_started + count_frames() / config.frame_rate + MAX_WA_LOAD_TIME) <= now) {
+				TerminateProcess(worms_process, 0);
+			}else if(now != last_1) {
+				EnumWindows(&send1_hack, GetProcessId(worms_process));
+				last_1 = time(NULL);
 			}
 		}
 	}
@@ -449,6 +484,8 @@ void wa_capture::start_wa(const std::string &cmdline) {
 	
 	worms_process = pinfo.hProcess;
 	CloseHandle(pinfo.hThread);
+	
+	worms_started = time(NULL);
 }
 
 std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int16_t dead_val) {
