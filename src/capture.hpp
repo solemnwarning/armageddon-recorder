@@ -30,17 +30,6 @@
 
 #define FRAME_PREFIX "arec_"
 
-#define PASS_SYNC_BUF_SECS	30
-#define PASS_SYNC_MEAN_FRAMES	1
-#define PASS_SYNC_CMP_FRAMES	400
-
-/* Minimum/maximum "quiet" sample values for analysis pass. */
-#define STATIC_DEAD_ZONE 0.12
-
-/* Enable dynamic dead zone detection */
-#define DYNAMIC_PEAK_DETECTION 1
-#define DYNAMIC_PEAK_MARGIN 0.5
-
 #define MAX_WA_LOAD_TIME 10
 
 #define WM_WAEXIT WM_USER+1

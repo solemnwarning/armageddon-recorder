@@ -56,6 +56,13 @@ struct arec_config {
 	unsigned int audio_buf_count;
 	unsigned int max_skew;
 	
+	unsigned int sp_buffer;
+	unsigned int sp_mean_frames;
+	unsigned int sp_cmp_frames;
+	
+	bool sp_use_dz, sp_dynamic_dz;
+	double sp_static_dz, sp_dz_margin;
+	
 	unsigned int max_enc_threads;
 	
 	unsigned int wa_detail_level;

@@ -17,6 +17,7 @@
 
 #include <windows.h>
 #include <string>
+#include <stdio.h>
 
 #include "reg.hpp"
 
@@ -79,6 +80,11 @@ std::string reg_handle::get_string(const char *name, const std::string &default_
 	return default_val;
 }
 
+double reg_handle::get_double(const char *name, double default_val) {
+	std::string str = get_string(name);
+	return str.empty() ? default_val : atof(str.c_str());
+}
+
 void reg_handle::set_dword(const char *name, DWORD value) {
 	if(handle) {
 		RegSetValueEx(handle, name, 0, REG_DWORD, (BYTE*)&value, sizeof(value));
@@ -88,5 +94,14 @@ void reg_handle::set_dword(const char *name, DWORD value) {
 void reg_handle::set_string(const char *name, const std::string &value) {
 	if(handle) {
 		RegSetValueEx(handle, name, 0, REG_SZ, (BYTE*)value.c_str(), value.length() + 1);
+	}
+}
+
+void reg_handle::set_double(const char *name, double value) {
+	if(handle) {
+		char buf[64];
+		snprintf(buf, sizeof(buf), "%f", value);
+		
+		set_string(name, buf);
 	}
 }

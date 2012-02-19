@@ -256,7 +256,7 @@ void wa_capture::worker_main() {
 						wav_reader pass1(capture_path + "\\" + FRAME_PREFIX + "pass1.wav");
 						wav_reader pass2(capture_path + "\\" + FRAME_PREFIX + "pass2.wav");
 						
-						size_t buf_samples = config.audio_rate * PASS_SYNC_BUF_SECS;
+						size_t buf_samples = config.audio_rate * config.sp_buffer;
 						size_t buf_size = pass1.sample_size * buf_samples;
 						
 						char *pcm_buf = new char[buf_size];
@@ -271,10 +271,10 @@ void wa_capture::worker_main() {
 						size_t p2_samples = pass2.read_samples(pcm_buf, buf_samples);
 						std::vector<int16_t> p2_avgs = gen_averages(pcm_buf, p2_samples, 0);
 						
-						size_t p1_max = p1_avgs.size() - PASS_SYNC_CMP_FRAMES / PASS_SYNC_MEAN_FRAMES;
-						size_t p2_max = p2_avgs.size() - PASS_SYNC_CMP_FRAMES / PASS_SYNC_MEAN_FRAMES;
+						size_t p1_max = p1_avgs.size() - config.sp_cmp_frames / config.sp_mean_frames;
+						size_t p2_max = p2_avgs.size() - config.sp_cmp_frames / config.sp_mean_frames;
 						
-						size_t off_multi = (config.audio_rate / config.frame_rate) * PASS_SYNC_MEAN_FRAMES;
+						size_t off_multi = (config.audio_rate / config.frame_rate) * config.sp_mean_frames;
 						
 						size_t best_off = 0, best_variation = (size_t)(-1);
 						
@@ -497,7 +497,7 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 	samples *= config.audio_channels;
 	
 	size_t sample_size = config.audio_bits / 8;
-	size_t samples_per_avg = (config.audio_rate / config.frame_rate) * PASS_SYNC_MEAN_FRAMES * config.audio_channels;
+	size_t samples_per_avg = (config.audio_rate / config.frame_rate) * config.sp_mean_frames * config.audio_channels;
 	
 	/* Set dead zone based on highest/lowest peaks in audio stream and DYNAMIC_PEAK_MARGIN
 	 * or use hardcoded dead zone instead.
@@ -506,7 +506,7 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 	int dead_min = (sample_size == 1 ? 128 : 0);
 	int dead_max = dead_min;
 	
-	if(DYNAMIC_PEAK_DETECTION) {
+	if(config.sp_dynamic_dz) {
 		int zero_off = dead_min;
 		
 		for(size_t s = 0; s + sample_size <= samples; s++) {
@@ -521,11 +521,11 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 			}
 		}
 		
-		dead_min += abs(dead_min - zero_off) * DYNAMIC_PEAK_MARGIN;
-		dead_max -= abs(dead_max - zero_off) * DYNAMIC_PEAK_MARGIN;
+		dead_min += abs(dead_min - zero_off) * config.sp_dz_margin;
+		dead_max -= abs(dead_max - zero_off) * config.sp_dz_margin;
 	}else{
-		dead_min -= (sample_size == 1 ? 127 : 32767) * STATIC_DEAD_ZONE;
-		dead_max += (sample_size == 1 ? 127 : 32767) * STATIC_DEAD_ZONE;
+		dead_min -= (sample_size == 1 ? 127 : 32767) * config.sp_static_dz;
+		dead_max += (sample_size == 1 ? 127 : 32767) * config.sp_static_dz;
 	}
 	
 	std::vector<int16_t> averages;
@@ -537,7 +537,7 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 		 * the chance of synchronizing on background music or silence.
 		*/
 		
-		avg += (sample >= dead_min && sample <= dead_max ? dead_val : sample);
+		avg += (config.sp_use_dz && sample >= dead_min && sample <= dead_max ? dead_val : sample);
 		
 		if(++avg_count == samples_per_avg) {
 			averages.push_back(avg / avg_count);
@@ -554,7 +554,7 @@ unsigned int wa_capture::calc_variation(const std::vector<int16_t> &a, size_t a_
 	uint64_t var = 0;
 	unsigned int var_count = 0;
 	
-	size_t max = PASS_SYNC_CMP_FRAMES / PASS_SYNC_MEAN_FRAMES;
+	size_t max = config.sp_cmp_frames / config.sp_mean_frames;
 	
 	size_t ap = a_min, bp = b_min;
 	

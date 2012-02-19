@@ -95,6 +95,16 @@ size_t get_window_uint(HWND window) {
 	return strtoul(s.c_str(), NULL, 10);
 }
 
+double get_window_double(HWND window) {
+	std::string s = get_window_string(window);
+	
+	if(s.empty() || strspn(s.c_str(), "1234567890.") != s.length()) {
+		return -1;
+	}
+	
+	return atof(s.c_str());
+}
+
 /* Test if a start/end time is in valid format. An empty string is valid */
 bool validate_time(const std::string &time) {
 	int stage = 0;
@@ -737,6 +747,12 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 		break; \
 	}
 
+#define DOUBLE_IN(opt_var, window_id, opt_name, min, max) \
+	if((tmp.opt_var = get_window_double(GetDlgItem(hwnd, window_id))) == -1 || tmp.opt_var < min || tmp.opt_var > max) { \
+		MessageBox(hwnd, std::string(std::string(opt_name) + " must be a number between " + to_string(min) + " and " + to_string(max)).c_str(), NULL, MB_OK | MB_ICONERROR); \
+		break; \
+	}
+
 INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	switch(msg) {
 		case WM_INITDIALOG: {
@@ -784,6 +800,15 @@ INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			ComboBox_AddString(list, "16-bit");
 			ComboBox_SetCurSel(list, config.audio_bits / 8 - 1);
 			
+			SetWindowText(GetDlgItem(hwnd, SP_BUFFER_LEN), to_string(config.sp_buffer).c_str());
+			SetWindowText(GetDlgItem(hwnd, SP_MEAN_FRAMES), to_string(config.sp_mean_frames).c_str());
+			SetWindowText(GetDlgItem(hwnd, SP_CMP_FRAMES), to_string(config.sp_cmp_frames).c_str());
+			
+			Button_SetCheck(GetDlgItem(hwnd, SP_USE_DZ), config.sp_use_dz ? BST_CHECKED : BST_UNCHECKED);
+			Button_SetCheck(GetDlgItem(hwnd, SP_DYNAMIC_DZ), config.sp_dynamic_dz ? BST_CHECKED : BST_UNCHECKED);
+			SetWindowText(GetDlgItem(hwnd, SP_STATIC_DZ), to_string(config.sp_static_dz).c_str());
+			SetWindowText(GetDlgItem(hwnd, SP_DZ_MARGIN), to_string(config.sp_dz_margin).c_str());
+			
 			SetWindowText(GetDlgItem(hwnd, MAX_ENC_THREADS), to_string(config.max_enc_threads).c_str());
 			
 			return TRUE;
@@ -804,6 +829,21 @@ INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 					
 					tmp.audio_channels = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_CHANNELS)) + 1;
 					tmp.audio_bits = (ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_WIDTH)) + 1) * 8;
+					
+					UINT_IN(sp_buffer, SP_BUFFER_LEN, "Analysis buffer");
+					UINT_IN(sp_mean_frames, SP_MEAN_FRAMES, "Average length");
+					UINT_IN(sp_cmp_frames, SP_CMP_FRAMES, "Comparison length");
+					
+					if(tmp.sp_cmp_frames % tmp.sp_mean_frames) {
+						MessageBox(hwnd, "Comparison length must be a multiple of Average length", NULL, MB_OK | MB_ICONERROR);
+						break;
+					}
+					
+					tmp.sp_use_dz = (Button_GetCheck(GetDlgItem(hwnd, SP_USE_DZ)) == BST_CHECKED);
+					tmp.sp_dynamic_dz = (Button_GetCheck(GetDlgItem(hwnd, SP_DYNAMIC_DZ)) == BST_CHECKED);
+					
+					DOUBLE_IN(sp_static_dz, SP_STATIC_DZ, "Static dead zone", 0.0, 1.0);
+					DOUBLE_IN(sp_dz_margin, SP_DZ_MARGIN, "Dynamic dead zone margin", 0.0, 1.0);
 					
 					UINT_IN(max_enc_threads, MAX_ENC_THREADS, "Max threads");
 					
@@ -889,8 +929,17 @@ int main(int argc, char **argv) {
 	config.audio_channels = reg.get_dword("audio_channels", 2);
 	
 	config.audio_buf_time = reg.get_dword("audio_buf_time", 2);
-	config.audio_buf_count = reg.get_dword("audio_buf_time", 64);
-	config.max_skew = reg.get_dword("audio_buf_time", 5);
+	config.audio_buf_count = reg.get_dword("audio_buf_count", 64);
+	config.max_skew = reg.get_dword("max_skew", 5);
+	
+	config.sp_buffer = reg.get_dword("sp_buffer", 30);
+	config.sp_mean_frames = reg.get_dword("sp_mean_frames", 1);
+	config.sp_cmp_frames = reg.get_dword("sp_cmp_frames", 400);
+	
+	config.sp_use_dz = reg.get_dword("sp_use_dz", true);
+	config.sp_dynamic_dz = reg.get_dword("sp_dynamic_dz", true);
+	config.sp_static_dz = reg.get_double("sp_static_dz", 0.12);
+	config.sp_dz_margin = reg.get_double("sp_dz_margin", 0.5);
 	
 	config.max_enc_threads = reg.get_dword("max_enc_threads", 0);
 	
@@ -925,6 +974,15 @@ int main(int argc, char **argv) {
 		reg.set_dword("audio_buf_time", config.audio_buf_time);
 		reg.set_dword("audio_buf_count", config.audio_buf_count);
 		reg.set_dword("max_skew", config.max_skew);
+		
+		reg.set_dword("sp_buffer", config.sp_buffer);
+		reg.set_dword("sp_mean_frames", config.sp_mean_frames);
+		reg.set_dword("sp_cmp_frames", config.sp_cmp_frames);
+		
+		reg.set_dword("sp_use_dz", config.sp_use_dz);
+		reg.set_dword("sp_dynamic_dz", config.sp_dynamic_dz);
+		reg.set_double("sp_static_dz", config.sp_static_dz);
+		reg.set_double("sp_dz_margin", config.sp_dz_margin);
 		
 		reg.set_dword("max_enc_threads", config.max_enc_threads);
 		

@@ -38,3 +38,10 @@
 #define AUDIO_RATE                              40010
 #define AUDIO_CHANNELS                          40011
 #define AUDIO_WIDTH                             40012
+#define SP_MEAN_FRAMES                          40015
+#define SP_BUFFER_LEN                           40016
+#define SP_CMP_FRAMES                           40017
+#define SP_USE_DZ                               40018
+#define SP_DYNAMIC_DZ                           40019
+#define SP_STATIC_DZ                            40020
+#define SP_DZ_MARGIN                            40021

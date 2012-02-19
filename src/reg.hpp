@@ -29,9 +29,11 @@ struct reg_handle {
 	
 	DWORD get_dword(const char *name, DWORD default_val = 0);
 	std::string get_string(const char *name, const std::string &default_val = std::string());
+	double get_double(const char *name, double default_val = 0);
 	
 	void set_dword(const char *name, DWORD value);
 	void set_string(const char *name, const std::string &value);
+	void set_double(const char *name, double value);
 };
 
 #endif /* !AREC_REG_HPP */
