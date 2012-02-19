@@ -35,10 +35,7 @@
 #define PASS_SYNC_CMP_FRAMES	400
 
 /* Minimum/maximum "quiet" sample values for analysis pass. */
-#define PASS_SYNC_DEAD_8_MIN	98
-#define PASS_SYNC_DEAD_8_MAX	158
-#define PASS_SYNC_DEAD_16_MIN	-3932
-#define PASS_SYNC_DEAD_16_MAX	3932
+#define STATIC_DEAD_ZONE 0.12
 
 /* Enable dynamic dead zone detection */
 #define DYNAMIC_PEAK_DETECTION 1

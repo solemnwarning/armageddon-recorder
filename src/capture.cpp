@@ -522,8 +522,8 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 		dead_min += abs(dead_min) * DYNAMIC_PEAK_MARGIN;
 		dead_max -= abs(dead_max) * DYNAMIC_PEAK_MARGIN;
 	}else{
-		dead_min = (sample_size == 1 ? PASS_SYNC_DEAD_8_MIN : PASS_SYNC_DEAD_16_MIN);
-		dead_max = (sample_size == 1 ? PASS_SYNC_DEAD_8_MAX : PASS_SYNC_DEAD_16_MAX);
+		dead_min -= (sample_size == 1 ? 127 : 32767) * STATIC_DEAD_ZONE;
+		dead_max += (sample_size == 1 ? 127 : 32767) * STATIC_DEAD_ZONE;
 	}
 	
 	std::vector<int16_t> averages;
