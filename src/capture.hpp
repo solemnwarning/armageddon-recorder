@@ -40,6 +40,10 @@
 #define PASS_SYNC_DEAD_16_MIN	-3932
 #define PASS_SYNC_DEAD_16_MAX	3932
 
+/* Enable dynamic dead zone detection */
+#define DYNAMIC_PEAK_DETECTION 1
+#define DYNAMIC_PEAK_MARGIN 0.5
+
 #define MAX_WA_LOAD_TIME 10
 
 #define WM_WAEXIT WM_USER+1

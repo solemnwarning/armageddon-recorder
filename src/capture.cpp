@@ -499,6 +499,33 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 	size_t sample_size = config.audio_bits / 8;
 	size_t samples_per_avg = (config.audio_rate / config.frame_rate) * PASS_SYNC_MEAN_FRAMES * config.audio_channels;
 	
+	/* Set dead zone based on highest/lowest peaks in audio stream and DYNAMIC_PEAK_MARGIN
+	 * or use hardcoded dead zone instead.
+	*/
+	
+	int dead_min = (sample_size == 1 ? 128 : 0);
+	int dead_max = dead_min;
+	
+	if(DYNAMIC_PEAK_DETECTION) {
+		for(size_t s = 0; s + sample_size <= samples; s++) {
+			int sample = (sample_size == 1 ? *(uint8_t*)(raw_pcm + s * sample_size) : *(int16_t*)(raw_pcm + s * sample_size));
+			
+			if(sample < dead_min) {
+				dead_min = sample;
+			}
+			
+			if(sample > dead_max) {
+				dead_max = sample;
+			}
+		}
+		
+		dead_min += abs(dead_min) * DYNAMIC_PEAK_MARGIN;
+		dead_max -= abs(dead_max) * DYNAMIC_PEAK_MARGIN;
+	}else{
+		dead_min = (sample_size == 1 ? PASS_SYNC_DEAD_8_MIN : PASS_SYNC_DEAD_16_MIN);
+		dead_max = (sample_size == 1 ? PASS_SYNC_DEAD_8_MAX : PASS_SYNC_DEAD_16_MAX);
+	}
+	
 	std::vector<int16_t> averages;
 	
 	for(size_t s = 0; s + sample_size <= samples; s++) {
@@ -508,11 +535,7 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 		 * the chance of synchronizing on background music or silence.
 		*/
 		
-		if((sample_size == 1 && (sample > PASS_SYNC_DEAD_8_MAX || sample < PASS_SYNC_DEAD_8_MIN)) || (sample_size == 2 && (sample > PASS_SYNC_DEAD_16_MAX || sample < PASS_SYNC_DEAD_16_MIN))) {
-			avg += sample;
-		}else{
-			avg += dead_val;
-		}
+		avg += (sample >= dead_min && sample <= dead_max ? dead_val : sample);
 		
 		if(++avg_count == samples_per_avg) {
 			averages.push_back(avg / avg_count);
