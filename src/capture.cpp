@@ -507,6 +507,8 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 	int dead_max = dead_min;
 	
 	if(DYNAMIC_PEAK_DETECTION) {
+		int zero_off = dead_min;
+		
 		for(size_t s = 0; s + sample_size <= samples; s++) {
 			int sample = (sample_size == 1 ? *(uint8_t*)(raw_pcm + s * sample_size) : *(int16_t*)(raw_pcm + s * sample_size));
 			
@@ -519,8 +521,8 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 			}
 		}
 		
-		dead_min += abs(dead_min) * DYNAMIC_PEAK_MARGIN;
-		dead_max -= abs(dead_max) * DYNAMIC_PEAK_MARGIN;
+		dead_min += abs(dead_min - zero_off) * DYNAMIC_PEAK_MARGIN;
+		dead_max -= abs(dead_max - zero_off) * DYNAMIC_PEAK_MARGIN;
 	}else{
 		dead_min -= (sample_size == 1 ? 127 : 32767) * STATIC_DEAD_ZONE;
 		dead_max += (sample_size == 1 ? 127 : 32767) * STATIC_DEAD_ZONE;
