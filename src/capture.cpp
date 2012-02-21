@@ -161,8 +161,15 @@ static BOOL CALLBACK send1_hack(HWND hwnd, LPARAM wa_pid) {
 	GetWindowThreadProcessId(hwnd, &window_pid);
 	
 	if(window_pid == (DWORD)wa_pid) {
-		PostMessage(hwnd, WM_KEYDOWN, 0x31, 0);
-		PostMessage(hwnd, WM_KEYUP, 0x31, 0);
+		char title[32];
+		SendMessage(hwnd, WM_GETTEXT, sizeof(title), (LPARAM)title);
+		
+		if(strcmp(title, "Worms2D") == 0) {
+			PostMessage(hwnd, WM_KEYDOWN, 0x31, 0);
+			PostMessage(hwnd, WM_KEYUP, 0x31, 0);
+			
+			return FALSE;
+		}
 	}
 	
 	return TRUE;
