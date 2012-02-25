@@ -266,17 +266,34 @@ void wa_capture::worker_main() {
 						size_t buf_samples = config.audio_rate * config.sp_buffer;
 						size_t buf_size = pass1.sample_size * buf_samples;
 						
-						char *pcm_buf = new char[buf_size];
+						char *buf1 = new char[buf_size], *buf2 = new char[buf_size];
 						
-						/* TODO: Work out higher/lower values to use here to
-						 * correctly compensate for quiet segments.
-						*/
+						size_t p1_samples = pass1.read_samples(buf1, buf_samples);
+						size_t p2_samples = pass2.read_samples(buf2, buf_samples);
 						
-						size_t p1_samples = pass1.read_samples(pcm_buf, buf_samples);
-						std::vector<int16_t> p1_avgs = gen_averages(pcm_buf, p1_samples, 0);
+						/* Set deadzone min/max values */
 						
-						size_t p2_samples = pass2.read_samples(pcm_buf, buf_samples);
-						std::vector<int16_t> p2_avgs = gen_averages(pcm_buf, p2_samples, 0);
+						if(config.sp_use_dz) {
+							dead_min = dead_max = (config.audio_bits == 8 ? 128 : 0);
+							
+							if(config.sp_dynamic_dz) {
+								int zero_off = dead_min;
+								
+								pad_deadzone(buf1, p1_samples);
+								pad_deadzone(buf2, p2_samples);
+								
+								dead_min += abs(dead_min - zero_off) * config.sp_dz_margin;
+								dead_max -= abs(dead_max - zero_off) * config.sp_dz_margin;
+							}else{
+								int max_v = (config.audio_bits == 8 ? 127 : 32767);
+								
+								dead_min += max_v * config.sp_static_dz;
+								dead_max -= max_v * config.sp_static_dz;
+							}
+						}
+						
+						std::vector<int16_t> p1_avgs = gen_averages(buf1, p1_samples, 0);
+						std::vector<int16_t> p2_avgs = gen_averages(buf2, p2_samples, 0);
 						
 						size_t p1_max = p1_avgs.size() - config.sp_cmp_frames / config.sp_mean_frames;
 						size_t p2_max = p2_avgs.size() - config.sp_cmp_frames / config.sp_mean_frames;
@@ -307,7 +324,7 @@ void wa_capture::worker_main() {
 						
 						size_t samples, write_samples = (config.audio_rate / config.frame_rate) * count_frames();
 						
-						while(write_samples && (samples = pass2.read_samples(pcm_buf, buf_samples))) {
+						while(write_samples && (samples = pass2.read_samples(buf1, buf_samples))) {
 							if(samples > write_samples) {
 								samples = write_samples;
 								write_samples = 0;
@@ -315,13 +332,14 @@ void wa_capture::worker_main() {
 								write_samples -= samples;
 							}
 							
-							wav_out->append_data(pcm_buf, samples * pass2.sample_size);
+							wav_out->append_data(buf1, samples * pass2.sample_size);
 						}
 						
 						delete wav_out;
 						wav_out = NULL;
 						
-						delete pcm_buf;
+						delete buf1;
+						delete buf2;
 					}
 				}
 				
@@ -506,35 +524,6 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 	size_t sample_size = config.audio_bits / 8;
 	size_t samples_per_avg = (config.audio_rate / config.frame_rate) * config.sp_mean_frames * config.audio_channels;
 	
-	/* Set dead zone based on highest/lowest peaks in audio stream and DYNAMIC_PEAK_MARGIN
-	 * or use hardcoded dead zone instead.
-	*/
-	
-	int dead_min = (sample_size == 1 ? 128 : 0);
-	int dead_max = dead_min;
-	
-	if(config.sp_dynamic_dz) {
-		int zero_off = dead_min;
-		
-		for(size_t s = 0; s + sample_size <= samples; s++) {
-			int sample = (sample_size == 1 ? *(uint8_t*)(raw_pcm + s * sample_size) : *(int16_t*)(raw_pcm + s * sample_size));
-			
-			if(sample < dead_min) {
-				dead_min = sample;
-			}
-			
-			if(sample > dead_max) {
-				dead_max = sample;
-			}
-		}
-		
-		dead_min += abs(dead_min - zero_off) * config.sp_dz_margin;
-		dead_max -= abs(dead_max - zero_off) * config.sp_dz_margin;
-	}else{
-		dead_min -= (sample_size == 1 ? 127 : 32767) * config.sp_static_dz;
-		dead_max += (sample_size == 1 ? 127 : 32767) * config.sp_static_dz;
-	}
-	
 	std::vector<int16_t> averages;
 	
 	for(size_t s = 0; s + sample_size <= samples; s++) {
@@ -559,7 +548,7 @@ std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int
 
 unsigned int wa_capture::calc_variation(const std::vector<int16_t> &a, size_t a_min, const std::vector<int16_t> &b, size_t b_min) {
 	uint64_t var = 0;
-	unsigned int var_count = 0;
+	unsigned int var_count = 0, dead_count = 0;
 	
 	size_t max = config.sp_cmp_frames / config.sp_mean_frames;
 	
@@ -571,7 +560,29 @@ unsigned int wa_capture::calc_variation(const std::vector<int16_t> &a, size_t a_
 		
 		var += high - low;
 		var_count++;
+		
+		if(config.sp_use_dz && ((a[ap] >= dead_min && a[ap] <= dead_max) || (b[bp] >= dead_min && b[bp] <= dead_max))) {
+			dead_count++;
+		}
 	}
 	
-	return var / var_count;
+	/* TODO: Return maximum variation if too many dead samples are in set */
+	
+	return (var / var_count) * dead_count;
+}
+
+void wa_capture::pad_deadzone(const char *raw_pcm, size_t samples) {
+	samples *= config.audio_channels;
+	
+	for(size_t s = 0; s < samples; s++) {
+		int sample = (config.audio_bits == 8 ? *(uint8_t*)(raw_pcm + s) : *(int16_t*)(raw_pcm + s * 2));
+		
+		if(sample < dead_min) {
+			dead_min = sample;
+		}
+		
+		if(sample > dead_max) {
+			dead_max = sample;
+		}
+	}
 }

@@ -74,6 +74,10 @@ struct wa_capture {
 	/* Cached result of count_frames() */
 	size_t last_frame_count;
 	
+	/* Variables used for 2-pass synchronization */
+	
+	int dead_min, dead_max;
+	
 	wa_capture(const std::string &replay, const arec_config &conf);
 	~wa_capture();
 	
@@ -91,6 +95,7 @@ struct wa_capture {
 	
 	std::vector<int16_t> gen_averages(char *raw_pcm, size_t samples, int16_t dead_val);
 	unsigned int calc_variation(const std::vector<int16_t> &a, size_t a_min, const std::vector<int16_t> &b, size_t b_min);
+	void pad_deadzone(const char *raw_pcm, size_t samples);
 };
 
 #endif /* !AREC_CAPTURE_HPP */
