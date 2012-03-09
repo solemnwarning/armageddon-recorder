@@ -287,8 +287,8 @@ void wa_capture::worker_main() {
 							}else{
 								int max_v = (config.audio_bits == 8 ? 127 : 32767);
 								
-								dead_min += max_v * config.sp_static_dz;
-								dead_max -= max_v * config.sp_static_dz;
+								dead_min -= max_v * config.sp_static_dz;
+								dead_max += max_v * config.sp_static_dz;
 							}
 						}
 						
