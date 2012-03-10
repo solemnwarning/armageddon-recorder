@@ -628,10 +628,6 @@ std::string ffmpeg_cmdline(const encoder_info &format, const std::string &captur
 	
 	cmdline.append(std::string(" -vcodec ") + format.video_format + " -acodec " + audio_encoders[audio_format].name);
 	
-	if(format.name == "H.264 (Lossless)") {
-		cmdline.append(" -qmin 0 -qmax 0");
-	}
-	
 	if(format.bps_pix) {
 		unsigned int bps = config.width * config.height;
 		bps *= format.bps_pix;

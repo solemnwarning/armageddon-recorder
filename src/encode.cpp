@@ -24,7 +24,8 @@ std::vector<encoder_info> encoders;
 
 audio_encoder audio_encoders[] = {
 	{"libvo_aacenc", "AAC"},
-	{"vorbis", "Ogg Vorbis"},
+	{"libvorbis", "Vorbis (libvorbis default quality)"},
+	{"libvorbis -aq 0.25", "Vorbis (Lex preset; sounds perfect w/ small file size)"},
 	{"flac", "FLAC"},
 	{"pcm_s16le", "16-bit PCM (Uncompressed)"},
 	{NULL, NULL}
@@ -53,10 +54,13 @@ std::string wide_to_string(const WCHAR *wide) {
 void load_encoders() {
 	ADD_ENCODER("Don't create video", encoder_info::none, 0, NULL, NULL); // frames
 	
-	ADD_ENCODER("H.264 (low quality)", encoder_info::ffmpeg, 0.325, "libx264 -pix_fmt yuvj420p", "mp4");
-	ADD_ENCODER("H.264 (medium quality)", encoder_info::ffmpeg, 0.98, "libx264 -pix_fmt yuvj420p", "mp4");
-	ADD_ENCODER("H.264 (high quality)", encoder_info::ffmpeg, 3.6, "libx264 -pix_fmt yuvj444p", "mp4");
-	ADD_ENCODER("H.264 (lossless)", encoder_info::ffmpeg, 0, "libx264rgb", "mp4");
+	ADD_ENCODER("H.264 (low quality)", encoder_info::ffmpeg, 0.325, "libx264 -pix_fmt yuvj420p", "mkv");
+	ADD_ENCODER("H.264 (medium quality)", encoder_info::ffmpeg, 0.98, "libx264 -pix_fmt yuvj420p", "mkv");
+	ADD_ENCODER("H.264 (high quality)", encoder_info::ffmpeg, 3.6, "libx264 -pix_fmt yuvj444p", "mkv");
+	
+	ADD_ENCODER("H.264 (Lex preset; looks perfect w/ small file size)", encoder_info::ffmpeg, 0, "libx264 -x264opts no-scenecut:weightp=2:rc-lookahead=250:no-fast-pskip:aq-mode=2:direct=auto:trellis=2:partitions=all:b-adapt=2:bframes=16:me=tesa:subme=11:merange=48:keyint=600:min-keyint=600:crf=14:colormatrix=bt470bg:fullrange=on -preset placebo -pix_fmt yuv444p", "mkv");
+	
+	ADD_ENCODER("H.264 (lossless)", encoder_info::ffmpeg, 0, "libx264rgb -pix_fmt bgr24 -qp 0", "mkv");
 	
 	ADD_ENCODER("ZMBV (lossless, 256 colours)", encoder_info::ffmpeg, 0, "zmbv", "mkv");
 	
