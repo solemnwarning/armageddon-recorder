@@ -705,7 +705,10 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 				
 				delete_frames(capture_path);
 				
+				DeleteFile(std::string(capture_path + "\\" + FRAME_PREFIX + "pass1.wav").c_str());
+				DeleteFile(std::string(capture_path + "\\" + FRAME_PREFIX + "pass2.wav").c_str());
 				DeleteFile(std::string(capture_path + "\\" + FRAME_PREFIX + "audio.wav").c_str());
+				
 				RemoveDirectory(capture_path.c_str());
 			}
 			

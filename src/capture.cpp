@@ -69,6 +69,8 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf): conf
 	recorded_frames = 0;
 	last_frame_count = 0;
 	
+	p1_skew_bytes = 0;
+	
 	this_pass = 1;
 	
 	/* Set WA options */
@@ -408,7 +410,7 @@ void wa_capture::flush_audio() {
 	size_t frame_samples = wav_out->sample_rate / config.frame_rate;
 	
 	while(frames > recorded_frames) {
-		ssize_t buf_start = frames;
+		ssize_t buf_start = frames + p1_skew_bytes / frame_bytes;
 		
 		for(std::list<WAVEHDR>::reverse_iterator b = audio_buffers.rbegin(); b != audio_buffers.rend();) {
 			buf_start -= b->dwBytesRecorded / frame_bytes;
@@ -429,20 +431,10 @@ void wa_capture::flush_audio() {
 						return;
 					}
 					
+					p1_skew_bytes = 0;
+					
 					wav_out->extend_sample((p_buf_start - recorded_frames) * frame_samples);
 					recorded_frames += p_buf_start - recorded_frames;
-					
-					/*
-					size_t pad_bytes = (p_buf_start - recorded_frames) * frame_bytes;
-					
-					char *zbuf = new char[pad_bytes];
-					memset(zbuf, 0, pad_bytes);
-					
-					wav_out->append_data(zbuf, pad_bytes);
-					recorded_frames += p_buf_start - recorded_frames;
-					
-					delete zbuf;
-					*/
 					
 					b--;
 				}else{
@@ -455,6 +447,13 @@ void wa_capture::flush_audio() {
 			assert((ssize_t)recorded_frames >= buf_start);
 			
 			size_t skip_bytes = (recorded_frames - buf_start) * frame_bytes;
+			
+			if((p1_skew_bytes + skip_bytes) / frame_bytes <= config.max_skew) {
+				p1_skew_bytes += skip_bytes;
+				skip_bytes = 0;
+			}else{
+				p1_skew_bytes = 0;
+			}
 			
 			wav_out->append_data(b->lpData + skip_bytes, b->dwBytesRecorded - skip_bytes);
 			recorded_frames += (b->dwBytesRecorded - skip_bytes) / frame_bytes;

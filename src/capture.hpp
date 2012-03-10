@@ -71,6 +71,11 @@ struct wa_capture {
 	
 	int this_pass;
 	
+	size_t p1_skew_bytes;	/* How many unexpected bytes have been written to
+				 * the first pass audio stream. This counter is reset
+				 * every time the audio is chopped or padded.
+				*/
+	
 	/* Cached result of count_frames() */
 	size_t last_frame_count;
 	
