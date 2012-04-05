@@ -25,7 +25,7 @@
 
 #define LIST_HEIGHT 200
 
-extern bool wormkit_present;
+extern bool wormkit_exe, wormkit_ds;
 extern reg_handle wa_options;
 
 template<class T> std::string to_string(const T& in) {

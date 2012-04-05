@@ -31,6 +31,7 @@
 #define FRAME_PREFIX "arec_"
 
 #define MAX_WA_LOAD_TIME 10
+#define WA_INPUT_FRAMES 5
 
 #define WM_WAEXIT WM_USER+1
 #define WM_PUSHLOG WM_USER+2
@@ -75,6 +76,9 @@ struct wa_capture {
 				 * the first pass audio stream. This counter is reset
 				 * every time the audio is chopped or padded.
 				*/
+	
+	HANDLE p2_s1_timer;	/* Timer to press/release the 1 key while capturing second pass */
+	bool p2_s1_held;	/* Current state of the 1 key */
 	
 	/* Cached result of count_frames() */
 	size_t last_frame_count;

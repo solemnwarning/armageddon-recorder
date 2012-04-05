@@ -71,6 +71,18 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf): conf
 	
 	p1_skew_bytes = 0;
 	
+	/* Whoever designed this API needs to die. */
+	
+	unsigned int s1_timer_ms = (1000 / config.frame_rate) * WA_INPUT_FRAMES;
+	
+	LARGE_INTEGER s1_timer_due;
+	s1_timer_due.QuadPart = -((uint64_t)s1_timer_ms * 1000000LLU);
+	
+	assert((p2_s1_timer = CreateWaitableTimer(NULL, FALSE, NULL)));
+	assert(SetWaitableTimer(p2_s1_timer, &s1_timer_due, s1_timer_ms, NULL, NULL, FALSE));
+	
+	p2_s1_held = false;
+	
 	this_pass = 1;
 	
 	/* Set WA options */
@@ -122,6 +134,9 @@ wa_capture::~wa_capture() {
 		wa_options.set_dword(i->first.c_str(), i->second);
 	}
 	
+	CancelWaitableTimer(p2_s1_timer);
+	CloseHandle(p2_s1_timer);
+	
 	if(config.enable_audio) {
 		delete wav_out;
 		
@@ -158,17 +173,19 @@ static inline bool memeq(void *ptr_a, void *ptr_b, size_t size) {
 	return true;
 }
 
-static BOOL CALLBACK send1_hack(HWND hwnd, LPARAM wa_pid) {
+static BOOL CALLBACK send1_hack(HWND hwnd, LPARAM lp) {
+	wa_capture *this_ptr = (wa_capture*)lp;
+	
 	DWORD window_pid;
 	GetWindowThreadProcessId(hwnd, &window_pid);
 	
-	if(window_pid == (DWORD)wa_pid) {
+	if(window_pid == GetProcessId(this_ptr->worms_process)) {
 		char title[32];
 		SendMessage(hwnd, WM_GETTEXT, sizeof(title), (LPARAM)title);
 		
 		if(strcmp(title, "Worms2D") == 0) {
-			PostMessage(hwnd, WM_KEYDOWN, 0x31, 0);
-			PostMessage(hwnd, WM_KEYUP, 0x31, 0);
+			PostMessage(hwnd, this_ptr->p2_s1_held ? WM_KEYUP : WM_KEYDOWN, 0x31, 0);
+			this_ptr->p2_s1_held = !this_ptr->p2_s1_held;
 			
 			return FALSE;
 		}
@@ -178,10 +195,8 @@ static BOOL CALLBACK send1_hack(HWND hwnd, LPARAM wa_pid) {
 }
 
 void wa_capture::worker_main() {
-	HANDLE events[] = {force_exit, worms_process, audio_event};
+	HANDLE events[] = {force_exit, worms_process, audio_event, p2_s1_timer};
 	int n_events = 2;
-	
-	time_t last_1 = 0;
 	
 	/* Audio recording isn't started until the worker thread starts executing
 	 * to reduce the chance of the buffers running out and causing the multimedia
@@ -255,6 +270,8 @@ void wa_capture::worker_main() {
 						events[1] = worms_process;
 						
 						audio_rec->start();
+						
+						n_events = 4;
 						
 						break;
 					}else{
@@ -351,23 +368,33 @@ void wa_capture::worker_main() {
 				return;
 			}
 			
+			case WAIT_OBJECT_0 + 3: {
+				/* Disgusting hack to repeatedly send a 1 keypress to
+				 * the WA process to make second pass replay start.
+				 *
+				 * Key state is toggled each time as it must be held
+				 * down for at least one frame in order for WA to
+				 * acknowledge it.
+				*/
+				
+				EnumWindows(&send1_hack, (LPARAM)this);
+				
+				break;
+			}
+			
 			default:
 				break;
 		}
 		
-		/* Horrible, horrible hack. Send '1' to the WA process every 1 second
-		 * while running second pass.
+		/* Terminate WA to finish the second pass replay once it has been running
+		 * for the length of the replay plus MAX_WA_LOAD_TIME seconds.
+		 *
+		 * TODO: Figure out a way to actually detect the current replay position.
+		 * Maybe get an end time option added to WA when not exporting replays?
 		*/
 		
-		if(this_pass == 2) {
-			time_t now = time(NULL);
-			
-			if((time_t)(worms_started + count_frames() / config.frame_rate + MAX_WA_LOAD_TIME) <= now) {
-				TerminateProcess(worms_process, 0);
-			}else if(now != last_1) {
-				EnumWindows(&send1_hack, GetProcessId(worms_process));
-				last_1 = time(NULL);
-			}
+		if(this_pass == 2 && (time_t)(worms_started + count_frames() / config.frame_rate + MAX_WA_LOAD_TIME) <= time(NULL)) {
+			TerminateProcess(worms_process, 0);
 		}
 	}
 }
@@ -494,7 +521,7 @@ void wa_capture::start_wa(const std::string &cmdline) {
 	
 	PROCESS_INFORMATION pinfo;
 	
-	if(wormkit_present && config.load_wormkit_dlls) {
+	if(wormkit_exe && !wormkit_ds && config.load_wormkit_dlls) {
 		log_push("Loading madCHook...\r\n");
 		assert(madchook || (madchook = LoadLibrary(std::string(wa_path + "\\madCHook.dll").c_str())));
 		

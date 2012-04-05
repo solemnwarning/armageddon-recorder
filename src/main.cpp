@@ -69,7 +69,7 @@ unsigned int audio_format;
 bool do_cleanup;
 
 std::string wa_path;
-bool wormkit_present = false;
+bool wormkit_exe, wormkit_ds;
 
 HWND progress_dialog = NULL;
 bool com_init = false;		/* COM has been initialized in the main thread */
@@ -229,10 +229,12 @@ void set_combo_height(HWND combo) {
 }
 
 void check_wormkit() {
-	wormkit_present = (
+	wormkit_exe = (
 		GetFileAttributes(std::string(wa_path + "\\madCHook.dll").c_str()) != INVALID_FILE_ATTRIBUTES &&
 		GetFileAttributes(std::string(wa_path + "\\HookLib.dll").c_str()) != INVALID_FILE_ATTRIBUTES
 	);
+	
+	wormkit_ds = (GetFileAttributes(std::string(wa_path + "\\dsound.dll").c_str()) != INVALID_FILE_ATTRIBUTES);
 }
 
 INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -241,8 +243,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			SendMessage(hwnd, WM_SETICON, 0, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON16)));
 			SendMessage(hwnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON32)));
 			
-			EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_present ? MF_ENABLED : MF_GRAYED);
-			CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, config.load_wormkit_dlls ? MF_CHECKED : MF_UNCHECKED);
+			EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && !wormkit_ds) ? MF_ENABLED : MF_GRAYED);
+			CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_ds || (wormkit_exe && config.load_wormkit_dlls)) ? MF_CHECKED : MF_UNCHECKED);
 			
 			CheckMenuItem(GetMenu(hwnd), DO_SECOND_PASS, config.do_second_pass ? MF_CHECKED : MF_UNCHECKED);
 			
@@ -456,7 +458,9 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 							wa_path = dir;
 							
 							check_wormkit();
-							EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_present ? MF_ENABLED : MF_GRAYED);
+							
+							EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && !wormkit_ds) ? MF_ENABLED : MF_GRAYED);
+							CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_ds || (wormkit_exe && config.load_wormkit_dlls)) ? MF_CHECKED : MF_UNCHECKED);
 						}
 						
 						break;
