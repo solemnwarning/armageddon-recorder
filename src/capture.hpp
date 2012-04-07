@@ -100,7 +100,7 @@ struct wa_capture {
 	
 	void set_option(const char *name, DWORD value, DWORD def_value = 0);
 	
-	void start_wa(const std::string &cmdline);
+	void start_wa(std::string cmdline);
 	
 	std::vector<int16_t> gen_averages(char *raw_pcm, size_t samples, int16_t dead_val);
 	unsigned int calc_variation(const std::vector<int16_t> &a, size_t a_min, const std::vector<int16_t> &b, size_t b_min);

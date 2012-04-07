@@ -511,7 +511,12 @@ void wa_capture::set_option(const char *name, DWORD value, DWORD def_value) {
 	wa_options.set_dword(name, value);
 }
 
-void wa_capture::start_wa(const std::string &cmdline) {
+void wa_capture::start_wa(std::string cmdline) {
+	if(wormkit_ds && !config.load_wormkit_dlls) {
+		/* Prevent WormKitDS from loading modules */
+		cmdline.append(" /nowk");
+	}
+	
 	worms_cmdline = new char[cmdline.length() + 1];
 	strcpy(worms_cmdline, cmdline.c_str());
 	

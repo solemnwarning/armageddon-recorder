@@ -243,8 +243,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			SendMessage(hwnd, WM_SETICON, 0, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON16)));
 			SendMessage(hwnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON32)));
 			
-			EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && !wormkit_ds) ? MF_ENABLED : MF_GRAYED);
-			CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_ds || (wormkit_exe && config.load_wormkit_dlls)) ? MF_CHECKED : MF_UNCHECKED);
+			EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe || wormkit_ds) ? MF_ENABLED : MF_GRAYED);
+			CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, ((wormkit_ds || wormkit_exe) && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
 			
 			CheckMenuItem(GetMenu(hwnd), DO_SECOND_PASS, config.do_second_pass ? MF_CHECKED : MF_UNCHECKED);
 			
@@ -459,8 +459,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 							
 							check_wormkit();
 							
-							EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && !wormkit_ds) ? MF_ENABLED : MF_GRAYED);
-							CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_ds || (wormkit_exe && config.load_wormkit_dlls)) ? MF_CHECKED : MF_UNCHECKED);
+							EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe || wormkit_ds) ? MF_ENABLED : MF_GRAYED);
+							CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, ((wormkit_ds || wormkit_exe) && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
 						}
 						
 						break;
@@ -935,7 +935,7 @@ int main(int argc, char **argv) {
 	config.audio_buf_count = reg.get_dword("audio_buf_count", 64);
 	config.max_skew = reg.get_dword("max_skew", 5);
 	
-	config.sp_buffer = reg.get_dword("sp_buffer", 30);
+	config.sp_buffer = reg.get_dword("sp_buffer", 60);
 	config.sp_mean_frames = reg.get_dword("sp_mean_frames", 1);
 	config.sp_cmp_frames = reg.get_dword("sp_cmp_frames", 400);
 	
