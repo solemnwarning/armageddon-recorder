@@ -33,9 +33,6 @@
 #define MAX_WA_LOAD_TIME 10
 #define WA_INPUT_FRAMES 5
 
-#define WM_WAEXIT WM_USER+1
-#define WM_PUSHLOG WM_USER+2
-
 struct audio_buf {
 	char *data;
 	size_t size;	/* Amount of audio data in buffer */
@@ -46,9 +43,6 @@ struct audio_buf {
 };
 
 struct wa_capture {
-	std::string replay_path;
-	std::string capture_path;
-	
 	arec_config config;
 	
 	HANDLE worker_thread;
@@ -87,7 +81,7 @@ struct wa_capture {
 	
 	int dead_min, dead_max;
 	
-	wa_capture(const std::string &replay, const arec_config &conf);
+	wa_capture(const arec_config &conf);
 	~wa_capture();
 	
 	void worker_main();
@@ -106,5 +100,7 @@ struct wa_capture {
 	unsigned int calc_variation(const std::vector<int16_t> &a, size_t a_min, const std::vector<int16_t> &b, size_t b_min);
 	void pad_deadzone(const char *raw_pcm, size_t samples);
 };
+
+void delete_capture(const std::string &dir);
 
 #endif /* !AREC_CAPTURE_HPP */

@@ -24,6 +24,13 @@
 
 std::vector<WAVEINCAPS> audio_sources;
 
+#define BASIC_MM_ASSERT(expr) { \
+	MMRESULT err = expr; \
+	if(err != MMSYSERR_NOERROR) { \
+		throw arec::error(std::string("Multimedia function call failed at ") + __FILE__ + ":" + to_string(__LINE__) + ":\r\n" + #expr + "\r\nError = " + to_string(err) + " (" + wave_error(err) + ")"); \
+	} \
+}
+
 audio_recorder::audio_recorder(const arec_config &config, HANDLE ev): event(ev) {
 	WAVEFORMATEX format;
 	format.wFormatTag = WAVE_FORMAT_PCM;
@@ -45,7 +52,9 @@ audio_recorder::audio_recorder(const arec_config &config, HANDLE ev): event(ev) 
 		CALLBACK_EVENT
 	);
 	
-	assert(err == MMSYSERR_NOERROR);
+	if(err != MMSYSERR_NOERROR) {
+		throw arec::error("Cannot open wave device: " + wave_error(err));
+	}
 	
 	for(unsigned int i = 0; i < config.audio_buf_count; i++) {
 		add_buffer();
@@ -56,21 +65,21 @@ audio_recorder::~audio_recorder() {
 	waveInReset(wavein);
 	
 	while(!buffers.empty() && buffers.front().dwFlags & WHDR_DONE) {
-		assert(waveInUnprepareHeader(wavein, &(buffers.front()), sizeof(WAVEHDR)) == MMSYSERR_NOERROR);
+		BASIC_MM_ASSERT(waveInUnprepareHeader(wavein, &(buffers.front()), sizeof(WAVEHDR)));
 		
 		delete buffers.front().lpData;
 		buffers.pop_front();
 	}
 	
-	assert(waveInClose(wavein) == MMSYSERR_NOERROR);
+	waveInClose(wavein);
 }
 
 void audio_recorder::start() {
-	assert(waveInStart(wavein) == MMSYSERR_NOERROR);
+	BASIC_MM_ASSERT(waveInStart(wavein));
 }
 
 void audio_recorder::stop() {
-	assert(waveInStop(wavein) == MMSYSERR_NOERROR);
+	BASIC_MM_ASSERT(waveInStop(wavein));
 }
 
 void audio_recorder::add_buffer() {
@@ -82,15 +91,18 @@ void audio_recorder::add_buffer() {
 	
 	buffers.push_back(header);
 	
-	assert(waveInPrepareHeader(wavein, &(buffers.back()), sizeof(header)) == MMSYSERR_NOERROR);
-	assert(waveInAddBuffer(wavein, &(buffers.back()), sizeof(header)) == MMSYSERR_NOERROR);
+	BASIC_MM_ASSERT(waveInPrepareHeader(wavein, &(buffers.back()), sizeof(header)));
+	BASIC_MM_ASSERT(waveInAddBuffer(wavein, &(buffers.back()), sizeof(header)));
 }
 
 std::list<WAVEHDR> audio_recorder::get_buffers() {
 	std::list<WAVEHDR> r_buffers;
 	
 	while(buffers.front().dwFlags & WHDR_DONE) {
-		assert(waveInUnprepareHeader(wavein, &(buffers.front()), sizeof(WAVEHDR)) == MMSYSERR_NOERROR);
+		MMRESULT err = waveInUnprepareHeader(wavein, &(buffers.front()), sizeof(WAVEHDR));
+		if(err != MMSYSERR_NOERROR) {
+			throw arec::error("waveInUnprepareHeader: " + wave_error(err));
+		}
 		
 		r_buffers.push_back(buffers.front());
 		buffers.pop_front();
@@ -139,7 +151,9 @@ wav_writer::wav_writer(const arec_config &config, const std::string &filename) {
 	header.chunk1_byte_rate = config.audio_rate * sample_size;
 	header.chunk1_align = sample_size;
 	
-	assert((file = fopen(filename.c_str(), "wb")));
+	if(!(file = fopen(filename.c_str(), "wb"))) {
+		throw arec::error(std::string("Cannot open output WAV file: ") + w32_error(GetLastError()) + "\nFile: " + filename);
+	}
 	
 	last_sample = new char[sample_size];
 	memset(last_sample, 0, sample_size);
@@ -175,16 +189,19 @@ void wav_writer::force_length(size_t samples) {
 }
 
 void wav_writer::write_at(size_t offset, const void *data, size_t size) {
-	assert(fseek(file, offset, SEEK_SET) == 0);
+	BASIC_W32_ASSERT(fseek(file, offset, SEEK_SET) == 0);
 	
 	for(size_t w = 0; w < size;) {
 		w += fwrite(((char*)data) + w, 1, size - w, file);
-		assert(!ferror(file));
+		
+		if(ferror(file)) {
+			throw arec::error(std::string("Error writing WAV file: ") + w32_error(GetLastError()));
+		}
 	}
 }
 
 void wav_writer::append_data(const void *data, size_t size) {
-	assert((size % sample_size) == 0);
+	INTERNAL_ASSERT((size % sample_size) == 0);
 	
 	memcpy(last_sample, ((char*)data) + size - sample_size, sample_size);
 	
@@ -242,10 +259,11 @@ bool test_audio_format(unsigned int source_id, unsigned int rate, unsigned int c
 }
 
 wav_reader::wav_reader(const std::string &filename) {
-	assert((file = fopen(filename.c_str(), "rb")));
+	BASIC_W32_ASSERT((file = fopen(filename.c_str(), "rb")));
+	
 	
 	wav_hdr header;
-	assert(read_data(&header, sizeof(header), 1));
+	INTERNAL_ASSERT(read_data(&header, sizeof(header), 1));
 	
 	sample_size = header.chunk1_channels * (header.chunk1_bits_sample / 8);
 }
@@ -255,11 +273,11 @@ wav_reader::~wav_reader() {
 }
 
 void wav_reader::reset() {
-	assert(fseek(file, sizeof(wav_hdr), SEEK_SET) == 0);
+	BASIC_W32_ASSERT(fseek(file, sizeof(wav_hdr), SEEK_SET) == 0);
 }
 
 void wav_reader::skip_samples(size_t samples) {
-	assert(fseek(file, sample_size * samples, SEEK_CUR) == 0);
+	BASIC_W32_ASSERT(fseek(file, sample_size * samples, SEEK_CUR) == 0);
 }
 
 size_t wav_reader::read_data(void *buf, size_t size, size_t max) {
@@ -268,7 +286,7 @@ size_t wav_reader::read_data(void *buf, size_t size, size_t max) {
 	while(blocks < max) {
 		while(this_block < size) {
 			this_block += fread((char*)buf + (size * blocks) + this_block, 1, size - this_block, file);
-			assert(!ferror(file));
+			BASIC_W32_ASSERT(!ferror(file));
 			
 			if(feof(file)) {
 				return blocks;

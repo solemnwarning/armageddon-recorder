@@ -21,6 +21,8 @@
 #include <string>
 #include <vector>
 
+#include "main.hpp"
+
 struct encoder_info {
 	enum type_enum {
 		none = 0,
@@ -48,6 +50,9 @@ extern audio_encoder audio_encoders[];
 
 void load_encoders();
 
-std::string ffmpeg_cmdline();
+std::string ffmpeg_cmdline(const arec_config &config);
+
+void ffmpeg_run(const arec_config &config);
+void ffmpeg_cleanup();
 
 #endif /* !AREC_ENCODE_H */

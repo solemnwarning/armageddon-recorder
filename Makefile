@@ -20,8 +20,8 @@ CXXFLAGS := -Wall -mwindows
 INCLUDES := -D_WIN32_WINNT=0x0501 -D_WIN32_IE=0x0300
 LIBS := -static-libgcc -static-libstdc++ -lwinmm -lcomctl32 -lcomdlg32 -lole32 -lvfw32
 
-OBJS := src/main.o src/resource.o src/audio.o src/reg.o src/encode.o src/capture.o
-HDRS := src/main.hpp src/resource.h src/audio.hpp src/reg.hpp src/encode.hpp src/capture.hpp
+OBJS := src/main.o src/resource.o src/audio.o src/reg.o src/encode.o src/capture.o src/ui.o
+HDRS := src/main.hpp src/resource.h src/audio.hpp src/reg.hpp src/encode.hpp src/capture.hpp src/ui.hpp
 
 all: armageddon-recorder.exe
 

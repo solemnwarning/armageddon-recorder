@@ -36,6 +36,7 @@
 #include "encode.hpp"
 #include "capture.hpp"
 #include "main.hpp"
+#include "ui.hpp"
 
 /* I thought we were past missing things, MinGW... */
 #define BIF_NONEWFOLDERBUTTON 0x00000200
@@ -58,52 +59,16 @@ const char *chat_levels[] = {
 	NULL
 };
 
-std::string replay_path;
-
 arec_config config;
-
-std::string video_path;
-unsigned int video_format = 2;
-unsigned int audio_format;
-
-bool do_cleanup;
 
 std::string wa_path;
 bool wormkit_exe, wormkit_ds;
 
-HWND progress_dialog = NULL;
 bool com_init = false;		/* COM has been initialized in the main thread */
 
 reg_handle wa_options(HKEY_CURRENT_USER, "Software\\Team17SoftwareLTD\\WormsArmageddon\\Options", KEY_QUERY_VALUE | KEY_SET_VALUE, false);
 
 INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
-
-std::string get_window_string(HWND hwnd) {
-	char buf[1024];
-	
-	GetWindowText(hwnd, buf, sizeof(buf));
-	return buf;
-}
-
-size_t get_window_uint(HWND window) {
-	std::string s = get_window_string(window);
-	
-	if(s.empty() || strspn(s.c_str(), "1234567890") != s.length()) {
-		return -1;
-	}
-	
-	return strtoul(s.c_str(), NULL, 10);
-}
-
-double get_window_double(HWND window) {
-	std::string s = get_window_string(window);
-	
-	if(s.empty() || strspn(s.c_str(), "1234567890.") != s.length()) {
-		return -1;
-	}
-	
-	return atof(s.c_str());
-}
 
 /* Test if a start/end time is in valid format. An empty string is valid */
 bool validate_time(const std::string &time) {
@@ -257,7 +222,7 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 				ComboBox_AddString(fmt_list, encoders[i].name.c_str());
 			}
 			
-			ComboBox_SetCurSel(fmt_list, video_format);
+			ComboBox_SetCurSel(fmt_list, config.video_format);
 			set_combo_height(fmt_list);
 			
 			HWND audio_list = GetDlgItem(hwnd, AUDIO_SOURCE);
@@ -305,10 +270,10 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 				ComboBox_AddString(audio_fmt_list, audio_encoders[i].desc);
 			}
 			
-			ComboBox_SetCurSel(audio_fmt_list, audio_format);
+			ComboBox_SetCurSel(audio_fmt_list, config.audio_format);
 			set_combo_height(audio_fmt_list);
 			
-			Button_SetCheck(GetDlgItem(hwnd, DO_CLEANUP), (do_cleanup ? BST_CHECKED : BST_UNCHECKED));
+			Button_SetCheck(GetDlgItem(hwnd, DO_CLEANUP), (config.do_cleanup ? BST_CHECKED : BST_UNCHECKED));
 			
 			goto VIDEO_ENABLE;
 			
@@ -324,10 +289,10 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			if(HIWORD(wp) == BN_CLICKED) {
 				switch(LOWORD(wp)) {
 					case IDOK: {
-						replay_path = get_window_string(GetDlgItem(hwnd, REPLAY_PATH));
-						video_path = get_window_string(GetDlgItem(hwnd, AVI_PATH));
-						video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
-						audio_format = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_FORMAT_MENU));
+						config.replay_file = get_window_string(GetDlgItem(hwnd, REPLAY_PATH));
+						config.video_file = get_window_string(GetDlgItem(hwnd, AVI_PATH));
+						config.video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
+						config.audio_format = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_FORMAT_MENU));
 						
 						config.audio_source = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_SOURCE));
 						config.enable_audio = (config.audio_source-- > 0);
@@ -373,19 +338,35 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						config.wa_detail_level = ComboBox_GetCurSel(GetDlgItem(hwnd, WA_DETAIL));
 						config.wa_chat_behaviour = ComboBox_GetCurSel(GetDlgItem(hwnd, WA_CHAT));
 						
-						do_cleanup = Button_GetCheck(GetDlgItem(hwnd, DO_CLEANUP));
+						config.do_cleanup = Button_GetCheck(GetDlgItem(hwnd, DO_CLEANUP));
 						
-						if(video_format == 0 && do_cleanup) {
+						if(config.video_format == 0 && config.do_cleanup) {
 							MessageBox(hwnd, "You've chosen to not create a video file and delete frames/audio when finished. You probably don't want this.", NULL, MB_OK | MB_ICONWARNING);
 							break;
 						}
 						
-						if(video_format) {
-							if(video_path.empty()) {
+						if(config.video_format) {
+							if(config.video_file.empty()) {
 								MessageBox(hwnd, "Output video filename is required", NULL, MB_OK | MB_ICONERROR);
 								break;
 							}
 						}
+						
+						/* Fill in convenience variables */
+						
+						config.replay_name = config.replay_file;
+						
+						size_t last_slash = config.replay_name.find_last_of('\\');
+						if(last_slash != std::string::npos) {
+							config.replay_name.erase(0, last_slash + 1);
+						}
+						
+						size_t last_dot = config.replay_name.find_last_of('.');
+						if(last_dot != std::string::npos) {
+							config.replay_name.erase(last_dot);
+						}
+						
+						config.capture_dir = wa_path + "\\User\\Capture\\" + config.replay_name;
 						
 						EndDialog(hwnd, 1);
 						break;
@@ -412,10 +393,10 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						openfile.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 						
 						if(GetOpenFileName(&openfile)) {
-							replay_path = filename;
-							SetWindowText(GetDlgItem(hwnd, REPLAY_PATH), replay_path.c_str());
+							config.replay_file = filename;
+							SetWindowText(GetDlgItem(hwnd, REPLAY_PATH), config.replay_file.c_str());
 							
-							config.replay_dir = replay_path;
+							config.replay_dir = config.replay_file;
 							config.replay_dir.erase(config.replay_dir.find_last_of('\\'));
 						}else if(CommDlgExtendedError()) {
 							MessageBox(hwnd, std::string("GetOpenFileName: " + to_string(CommDlgExtendedError())).c_str(), NULL, MB_OK | MB_ICONERROR);
@@ -437,13 +418,13 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						openfile.lpstrInitialDir = (config.video_dir.length() ? config.video_dir.c_str() : NULL);
 						openfile.lpstrTitle = "Save video as...";
 						openfile.Flags = OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
-						openfile.lpstrDefExt = encoders[video_format].default_ext;
+						openfile.lpstrDefExt = encoders[config.video_format].default_ext;
 						
 						if(GetSaveFileName(&openfile)) {
-							video_path = filename;
-							SetWindowText(GetDlgItem(hwnd, AVI_PATH), video_path.c_str());
+							config.video_file = filename;
+							SetWindowText(GetDlgItem(hwnd, AVI_PATH), config.video_file.c_str());
 							
-							config.video_dir = video_path;
+							config.video_dir = config.video_file;
 							config.video_dir.erase(config.video_dir.find_last_of('\\'));
 						}else if(CommDlgExtendedError()) {
 							MessageBox(hwnd, std::string("GetSaveFileName: " + to_string(CommDlgExtendedError())).c_str(), NULL, MB_OK | MB_ICONERROR);
@@ -507,10 +488,10 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 				if(LOWORD(wp) == VIDEO_FORMAT) {
 					VIDEO_ENABLE:
 					
-					video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
+					config.video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
 					
-					EnableWindow(GetDlgItem(hwnd, AVI_PATH), video_format != 0);
-					EnableWindow(GetDlgItem(hwnd, AVI_BROWSE), video_format != 0);
+					EnableWindow(GetDlgItem(hwnd, AVI_PATH), config.video_format != 0);
+					EnableWindow(GetDlgItem(hwnd, AVI_BROWSE), config.video_format != 0);
 					
 					return TRUE;
 				}
@@ -524,24 +505,6 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	return FALSE;
 }
 
-#define WM_BEGIN WM_USER+3
-#define WM_ENC_EXIT WM_USER+4
-
-void delete_frames(const std::string &dir) {
-	for(unsigned int i = 0;; i++) {
-		char frame_n[16];
-		snprintf(frame_n, sizeof(frame_n), "%06u", i);
-		
-		std::string file = dir + "\\" + FRAME_PREFIX + frame_n + ".png";
-		
-		if(GetFileAttributes(file.c_str()) != INVALID_FILE_ATTRIBUTES) {
-			DeleteFile(file.c_str());
-		}else{
-			break;
-		}
-	}
-}
-
 std::string escape_filename(std::string name) {
 	for(size_t i = 0; i < name.length(); i++) {
 		if(name[i] == '\\') {
@@ -550,198 +513,6 @@ std::string escape_filename(std::string name) {
 	}
 	
 	return name;
-}
-
-struct exe_launcher {
-	HWND window;
-	UINT message;
-	
-	HANDLE worker;
-	HANDLE worker_exit;
-	
-	char *cmdline_buf;
-	HANDLE process;
-	
-	exe_launcher(const std::string &cmdline, HWND hwnd, UINT msg);
-	~exe_launcher();
-	
-	DWORD main();
-};
-
-static WINAPI DWORD exe_launcher_init(LPVOID this_ptr) {
-	exe_launcher *v = (exe_launcher*)this_ptr;
-	return v->main();
-}
-
-exe_launcher::exe_launcher(const std::string &cmdline, HWND hwnd, UINT msg) {
-	window = hwnd;
-	message = msg;
-	
-	assert((worker_exit = CreateEvent(NULL, FALSE, FALSE, NULL)));
-	
-	cmdline_buf = new char[cmdline.length() + 1];
-	strcpy(cmdline_buf, cmdline.c_str());
-	
-	STARTUPINFO sinfo;
-	memset(&sinfo, 0, sizeof(sinfo));
-	sinfo.cb = sizeof(sinfo);
-	
-	PROCESS_INFORMATION pinfo;
-	
-	assert(CreateProcess(NULL, cmdline_buf, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo));
-	
-	process = pinfo.hProcess;
-	CloseHandle(pinfo.hThread);
-	
-	assert((worker = CreateThread(NULL, 0, &exe_launcher_init, this, 0, NULL)));
-}
-
-exe_launcher::~exe_launcher() {
-	SetEvent(worker_exit);
-	
-	WaitForSingleObject(worker, INFINITE);
-	CloseHandle(worker);
-	CloseHandle(worker_exit);
-	
-	TerminateProcess(process, 1);
-	CloseHandle(process);
-	
-	delete cmdline_buf;
-}
-
-DWORD exe_launcher::main() {
-	HANDLE events[] = {process, worker_exit};
-	
-	if(WaitForMultipleObjects(2, events, FALSE, INFINITE) == WAIT_OBJECT_0) {
-		PostMessage(window, message, 0, 0);
-	}
-	
-	return 0;
-}
-
-std::string ffmpeg_cmdline(const encoder_info &format, const std::string &capture_dir) {
-	std::string frames_in = escape_filename(capture_dir + "\\" + FRAME_PREFIX + "%06d.png");
-	std::string audio_in = escape_filename(capture_dir + "\\" + FRAME_PREFIX + "audio.wav");
-	std::string video_out = escape_filename(video_path);
-	
-	std::string cmdline = "ffmpeg.exe -threads " + to_string(config.max_enc_threads) + " -y -r " + to_string(config.frame_rate) + " -i \"" + frames_in + "\"";
-	
-	if(config.enable_audio) {
-		cmdline.append(std::string(" -i \"") + audio_in + "\"");
-	}
-	
-	cmdline.append(std::string(" -vcodec ") + format.video_format + " -acodec " + audio_encoders[audio_format].name);
-	
-	if(format.bps_pix) {
-		unsigned int bps = config.width * config.height;
-		bps *= format.bps_pix;
-		
-		cmdline.append(std::string(" -b:v ") + to_string(bps));
-	}
-	
-	cmdline.append(std::string(" \"") + video_out + "\"");
-	
-	return cmdline;
-}
-
-void log_push(const std::string &msg) {
-	SendMessage(progress_dialog, WM_PUSHLOG, (WPARAM)&msg, 0);
-}
-
-INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-	static wa_capture *capture = NULL;
-	static std::string capture_path;
-	
-	static exe_launcher *encoder = NULL;
-	
-	static int return_code;
-	
-	switch(msg) {
-		case WM_INITDIALOG: {
-			progress_dialog = hwnd;
-			return_code = 0;
-			
-			SendMessage(hwnd, WM_SETICON, 0, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON16)));
-			SendMessage(hwnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON32)));
-			
-			PostMessage(hwnd, WM_BEGIN, 0, 0);
-			return TRUE;
-		}
-		
-		case WM_CLOSE: {
-			delete encoder;
-			encoder = NULL;
-			
-			delete capture;
-			capture = NULL;
-			
-			EndDialog(hwnd, return_code);
-			return TRUE;
-		}
-		
-		case WM_BEGIN: {
-			capture = new wa_capture(replay_path, config);
-			capture_path = capture->capture_path;
-			
-			return TRUE;
-		}
-		
-		case WM_WAEXIT: {
-			if(encoders[video_format].type == encoder_info::ffmpeg) {
-				log_push("Starting encoder...\r\n");
-				
-				std::string cmdline = ffmpeg_cmdline(encoders[video_format], capture_path);
-				encoder = new exe_launcher(cmdline.c_str(), hwnd, WM_ENC_EXIT);
-			}else{
-				PostMessage(hwnd, WM_ENC_EXIT, 0, 0);
-			}
-			
-			return TRUE;
-		}
-		
-		case WM_ENC_EXIT: {
-			if(do_cleanup) {
-				log_push("Cleaning up...\r\n");
-				
-				delete_frames(capture_path);
-				
-				DeleteFile(std::string(capture_path + "\\" + FRAME_PREFIX + "pass1.wav").c_str());
-				DeleteFile(std::string(capture_path + "\\" + FRAME_PREFIX + "pass2.wav").c_str());
-				DeleteFile(std::string(capture_path + "\\" + FRAME_PREFIX + "audio.wav").c_str());
-				
-				RemoveDirectory(capture_path.c_str());
-			}
-			
-			log_push("Complete!\r\n");
-			EnableWindow(GetDlgItem(hwnd, IDOK), TRUE);
-			
-			return TRUE;
-		}
-		
-		case WM_COMMAND: {
-			if(HIWORD(wp) == BN_CLICKED && LOWORD(wp) == IDOK) {
-				return_code = 1;
-				PostMessage(hwnd, WM_CLOSE, 0, 0);
-			}
-			
-			return TRUE;
-		}
-		
-		case WM_PUSHLOG: {
-			HWND log = GetDlgItem(hwnd, LOG_EDIT);
-			
-			std::string buf = get_window_string(log) + *((std::string*)wp);
-			
-			SetWindowText(log, buf.c_str());
-			
-			return TRUE;
-		}
-		
-		default:
-			break;
-	}
-	
-	return FALSE;
 }
 
 #define UINT_IN(opt_var, window_id, opt_name) \
@@ -905,7 +676,7 @@ int main(int argc, char **argv) {
 	
 	for(unsigned int i = 0; i < encoders.size(); i++) {
 		if(fmt == encoders[i].name) {
-			video_format = i;
+			config.video_format = i;
 			break;
 		}
 	}
@@ -914,7 +685,7 @@ int main(int argc, char **argv) {
 	
 	for(unsigned int i = 0; audio_encoders[i].name; i++) {
 		if(fmt == std::string(audio_encoders[i].name) || i == 0) {
-			audio_format = i;
+			config.audio_format = i;
 		}
 	}
 	
@@ -952,14 +723,14 @@ int main(int argc, char **argv) {
 	config.wa_bigger_fonts = reg.get_dword("wa_bigger_fonts", true);
 	config.wa_transparent_labels = reg.get_dword("wa_transparent_labels", false);
 	
-	do_cleanup = reg.get_dword("do_cleanup", true);
+	config.do_cleanup = reg.get_dword("do_cleanup", true);
 	
 	config.replay_dir = reg.get_string("replay_dir");
 	config.video_dir = reg.get_string("video_dir");
 	
 	while(DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_MAIN), NULL, &main_dproc)) {
-		reg.set_string("selected_encoder", encoders[video_format].name);
-		reg.set_string("audio_format", audio_encoders[audio_format].name);
+		reg.set_string("selected_encoder", encoders[config.video_format].name);
+		reg.set_string("audio_format", audio_encoders[config.audio_format].name);
 		
 		reg.set_dword("res_x", config.width);
 		reg.set_dword("res_y", config.height);
@@ -995,7 +766,7 @@ int main(int argc, char **argv) {
 		reg.set_dword("wa_bigger_fonts", config.wa_bigger_fonts);
 		reg.set_dword("wa_transparent_labels", config.wa_transparent_labels);
 		
-		reg.set_dword("do_cleanup", do_cleanup);
+		reg.set_dword("do_cleanup", config.do_cleanup);
 		
 		reg.set_string("replay_dir", config.replay_dir);
 		reg.set_string("video_dir", config.video_dir);
@@ -1013,4 +784,13 @@ int main(int argc, char **argv) {
 	}
 	
 	return 0;
+}
+
+/* Convert a windows error number to an error message */
+const char *w32_error(DWORD errnum) {
+	static char buf[1024] = {'\0'};
+	
+	FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, errnum, 0, buf, 1023, NULL);
+	buf[strcspn(buf, "\r\n")] = '\0';
+	return buf;	
 }

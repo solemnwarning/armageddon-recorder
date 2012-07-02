@@ -19,6 +19,8 @@
 #include <vfw.h>
 
 #include "encode.hpp"
+#include "capture.hpp"
+#include "ui.hpp"
 
 std::vector<encoder_info> encoders;
 
@@ -65,4 +67,103 @@ void load_encoders() {
 	ADD_ENCODER("ZMBV (lossless, 256 colours)", encoder_info::ffmpeg, 0, "zmbv", "mkv");
 	
 	ADD_ENCODER("Uncompressed (raw) video", encoder_info::ffmpeg, 0, "rawvideo -pix_fmt bgr24", "avi");
+}
+
+std::string ffmpeg_cmdline(const arec_config &config) {
+	std::string frames_in = escape_filename(config.capture_dir + "\\" + FRAME_PREFIX + "%06d.png");
+	std::string audio_in = escape_filename(config.capture_dir + "\\" + FRAME_PREFIX + "audio.wav");
+	std::string video_out = escape_filename(config.video_file);
+	
+	std::string cmdline = "ffmpeg.exe -threads " + to_string(config.max_enc_threads) + " -y -r " + to_string(config.frame_rate) + " -i \"" + frames_in + "\"";
+	
+	if(config.enable_audio) {
+		cmdline.append(std::string(" -i \"") + audio_in + "\"");
+	}
+	
+	cmdline.append(std::string(" -vcodec ") + encoders[config.video_format].video_format + " -acodec " + audio_encoders[config.audio_format].name);
+	
+	if(encoders[config.video_format].bps_pix) {
+		unsigned int bps = config.width * config.height;
+		bps *= encoders[config.video_format].bps_pix;
+		
+		cmdline.append(std::string(" -b:v ") + to_string(bps));
+	}
+	
+	cmdline.append(std::string(" \"") + video_out + "\"");
+	
+	return cmdline;
+}
+
+static char *ffmpeg_cmdline_buf = NULL;
+static HANDLE ffmpeg_proc = NULL;
+static HANDLE ffmpeg_watcher = NULL, ffmpeg_watcher_end = NULL;
+
+/* Wait for the ffmpeg process to exit and post WM_ENC_EXIT to the progress
+ * dialog when it does.
+*/
+static WINAPI DWORD ffmpeg_watcher_main(LPVOID arg) {
+	HANDLE events[] = {ffmpeg_proc, ffmpeg_watcher_end};
+	
+	if(WaitForMultipleObjects(2, events, FALSE, INFINITE) == WAIT_OBJECT_0) {
+		DWORD exit_code;
+		GetExitCodeProcess(ffmpeg_proc, &exit_code);
+		
+		PostMessage(progress_dialog, WM_ENC_EXIT, (WPARAM)exit_code, 0);
+	}
+	
+	return 0;
+}
+
+/* Cleanup from any previous ffmpeg_run() call and then run ffmpeg. */
+void ffmpeg_run(const arec_config &config) {
+	ffmpeg_cleanup();
+	
+	std::string cmdline = ffmpeg_cmdline(config);
+	
+	ffmpeg_cmdline_buf = new char[cmdline.length() + 1];
+	strcpy(ffmpeg_cmdline_buf, cmdline.c_str());
+	
+	STARTUPINFO sinfo;
+	memset(&sinfo, 0, sizeof(sinfo));
+	sinfo.cb = sizeof(sinfo);
+	
+	PROCESS_INFORMATION pinfo;
+	
+	if(!CreateProcess(NULL, ffmpeg_cmdline_buf, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo)) {
+		throw arec::error(std::string("Cannot run ffmpeg.exe: ") + w32_error(GetLastError()));
+	}
+	
+	ffmpeg_proc = pinfo.hProcess;
+	CloseHandle(pinfo.hThread);
+	
+	BASIC_W32_ASSERT((ffmpeg_watcher_end = CreateEvent(NULL, FALSE, FALSE, NULL)));
+	BASIC_W32_ASSERT((ffmpeg_watcher = CreateThread(NULL, 0, &ffmpeg_watcher_main, NULL, 0, NULL)));
+}
+
+/* Terminate any running ffmpeg process or watcher thread and release any
+ * associated memory.
+*/
+void ffmpeg_cleanup() {
+	if(ffmpeg_watcher) {
+		SetEvent(ffmpeg_watcher_end);
+		WaitForSingleObject(ffmpeg_watcher, INFINITE);
+		
+		CloseHandle(ffmpeg_watcher);
+		ffmpeg_watcher = NULL;
+	}
+	
+	if(ffmpeg_watcher_end) {
+		CloseHandle(ffmpeg_watcher_end);
+		ffmpeg_watcher_end = NULL;
+	}
+	
+	if(ffmpeg_proc) {
+		TerminateProcess(ffmpeg_proc, 1);
+		
+		CloseHandle(ffmpeg_proc);
+		ffmpeg_proc = NULL;
+	}
+	
+	delete ffmpeg_cmdline_buf;
+	ffmpeg_cmdline_buf = NULL;
 }

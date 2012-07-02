@@ -22,48 +22,37 @@
 
 #include "capture.hpp"
 #include "audio.hpp"
+#include "ui.hpp"
 
 typedef BOOL WINAPI (*CreateProcessExA_ptr)(LPCTSTR,LPTSTR,LPSECURITY_ATTRIBUTES,LPSECURITY_ATTRIBUTES,BOOL,DWORD,LPVOID,LPCTSTR,LPSTARTUPINFO,LPPROCESS_INFORMATION,LPCTSTR);
 
-void delete_frames(const std::string &dir);
-void log_push(const std::string &msg);
-
 extern std::string wa_path;
 
-extern HWND progress_dialog;
-
 static DWORD WINAPI capture_worker_init(LPVOID this_ptr) {
-	wa_capture *t = (wa_capture*)this_ptr;
-	t->worker_main();
+	try {
+		wa_capture *t = (wa_capture*)this_ptr;
+		t->worker_main();
+	} catch(arec::error err) {
+		char *str = new char[strlen(err.what()) + 1];
+		strcpy(str, err.what());
+		
+		PostMessage(progress_dialog, WM_CAUGHT, (WPARAM)str, 1);
+	}
 	
 	return 0;
 }
 
-wa_capture::wa_capture(const std::string &replay, const arec_config &conf): config(conf) {
-	std::string replay_name = replay_path = replay;
+wa_capture::wa_capture(const arec_config &conf): config(conf) {
+	log_push("Preparing to capture " + config.replay_name + "...\r\n");
 	
-	size_t last_slash = replay_name.find_last_of('\\');
-	if(last_slash != std::string::npos) {
-		replay_name.erase(0, last_slash + 1);
-	}
-	
-	log_push("Preparing to capture " + replay_name + "...\r\n");
-	
-	size_t last_dot = replay_name.find_last_of('.');
-	if(last_dot != std::string::npos) {
-		replay_name.erase(last_dot);
-	}
-	
-	capture_path = wa_path + "\\User\\Capture\\" + replay_name;
-	
-	delete_frames(capture_path);
-	CreateDirectory(capture_path.c_str(), NULL);
+	delete_capture(config.capture_dir);
+	CreateDirectory(config.capture_dir.c_str(), NULL);
 	
 	if(config.enable_audio) {
-		assert((audio_event = CreateEvent(NULL, FALSE, FALSE, NULL)));
+		BASIC_W32_ASSERT((audio_event = CreateEvent(NULL, FALSE, FALSE, NULL)));
 		audio_rec = new audio_recorder(config, audio_event);
 		
-		wav_out = new wav_writer(config, capture_path + "\\" + FRAME_PREFIX + (config.do_second_pass ? "pass1.wav" : "audio.wav"));
+		wav_out = new wav_writer(config, config.capture_dir + "\\" + FRAME_PREFIX + (config.do_second_pass ? "pass1.wav" : "audio.wav"));
 	}
 	
 	recorded_frames = 0;
@@ -78,8 +67,8 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf): conf
 	LARGE_INTEGER s1_timer_due;
 	s1_timer_due.QuadPart = -((uint64_t)s1_timer_ms * 1000000LLU);
 	
-	assert((p2_s1_timer = CreateWaitableTimer(NULL, FALSE, NULL)));
-	assert(SetWaitableTimer(p2_s1_timer, &s1_timer_due, s1_timer_ms, NULL, NULL, FALSE));
+	BASIC_W32_ASSERT((p2_s1_timer = CreateWaitableTimer(NULL, FALSE, NULL)));
+	BASIC_W32_ASSERT(SetWaitableTimer(p2_s1_timer, &s1_timer_due, s1_timer_ms, NULL, NULL, FALSE));
 	
 	p2_s1_held = false;
 	
@@ -95,7 +84,7 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf): conf
 	set_option("InfoTransparency", config.wa_transparent_labels);
 	
 	std::string cmdline = "\"" + wa_path + "\\WA.exe\" /getvideo"
-		" \"" + replay_path + "\""
+		" \"" + config.replay_file + "\""
 		" \"" + to_string((double)50 / (double)config.frame_rate) + "\""
 		" \"" + config.start_time + "\" \"" + config.end_time + "\""
 		" \"" + to_string(config.width) + "\" \"" + to_string(config.height) + "\""
@@ -106,8 +95,8 @@ wa_capture::wa_capture(const std::string &replay, const arec_config &conf): conf
 	
 	/* Create worker thread */
 	
-	assert((force_exit = CreateEvent(NULL, FALSE, FALSE, NULL)));
-	assert((worker_thread = CreateThread(NULL, 0, &capture_worker_init, this, 0, NULL)));
+	BASIC_W32_ASSERT((force_exit = CreateEvent(NULL, FALSE, FALSE, NULL)));
+	BASIC_W32_ASSERT((worker_thread = CreateThread(NULL, 0, &capture_worker_init, this, 0, NULL)));
 }
 
 wa_capture::~wa_capture() {
@@ -252,7 +241,7 @@ void wa_capture::worker_main() {
 						delete worms_cmdline;
 						
 						audio_rec = new audio_recorder(config, audio_event);
-						wav_out = new wav_writer(config, capture_path + "\\" + FRAME_PREFIX + "pass2.wav");
+						wav_out = new wav_writer(config, config.capture_dir + "\\" + FRAME_PREFIX + "pass2.wav");
 						
 						std::string cmdline = "\"" + wa_path + "\\WA.exe\"";
 						
@@ -260,7 +249,7 @@ void wa_capture::worker_main() {
 							cmdline.append(" /playat");
 						}
 						
-						cmdline.append(std::string(" \"") + replay_path + "\"");
+						cmdline.append(std::string(" \"") + config.replay_file + "\"");
 						
 						if(!config.start_time.empty()) {
 							cmdline.append(std::string(" \"") + config.start_time + "\"");
@@ -279,8 +268,8 @@ void wa_capture::worker_main() {
 						
 						log_push("Searching for audio offset...\r\n");
 						
-						wav_reader pass1(capture_path + "\\" + FRAME_PREFIX + "pass1.wav");
-						wav_reader pass2(capture_path + "\\" + FRAME_PREFIX + "pass2.wav");
+						wav_reader pass1(config.capture_dir + "\\" + FRAME_PREFIX + "pass1.wav");
+						wav_reader pass2(config.capture_dir + "\\" + FRAME_PREFIX + "pass2.wav");
 						
 						size_t buf_samples = config.audio_rate * config.sp_buffer;
 						size_t buf_size = pass1.sample_size * buf_samples;
@@ -336,7 +325,7 @@ void wa_capture::worker_main() {
 						
 						log_push("Writing audio.wav...\r\n");
 						
-						wav_out = new wav_writer(config, capture_path + "\\" + FRAME_PREFIX + "audio.wav");
+						wav_out = new wav_writer(config, config.capture_dir + "\\" + FRAME_PREFIX + "audio.wav");
 						
 						pass2.reset();
 						pass2.skip_samples(best_off);
@@ -403,7 +392,7 @@ bool wa_capture::frame_exists(unsigned int frame) {
 	char num_buf[16];
 	sprintf(num_buf, "%06d", frame);
 	
-	std::string path = capture_path + "\\" + FRAME_PREFIX + num_buf + ".png";
+	std::string path = config.capture_dir + "\\" + FRAME_PREFIX + num_buf + ".png";
 	
 	return (GetFileAttributes(path.c_str()) != INVALID_FILE_ATTRIBUTES);
 }
@@ -471,7 +460,7 @@ void wa_capture::flush_audio() {
 			
 			/* The needed audio may be further in due to lag */
 			
-			assert((ssize_t)recorded_frames >= buf_start);
+			INTERNAL_ASSERT((ssize_t)recorded_frames >= buf_start);
 			
 			size_t skip_bytes = (recorded_frames - buf_start) * frame_bytes;
 			
@@ -528,16 +517,16 @@ void wa_capture::start_wa(std::string cmdline) {
 	
 	if(wormkit_exe && !wormkit_ds && config.load_wormkit_dlls) {
 		log_push("Loading madCHook...\r\n");
-		assert(madchook || (madchook = LoadLibrary(std::string(wa_path + "\\madCHook.dll").c_str())));
+		BASIC_W32_ASSERT(madchook || (madchook = LoadLibrary(std::string(wa_path + "\\madCHook.dll").c_str())));
 		
 		CreateProcessExA_ptr CreateProcessExA = (CreateProcessExA_ptr)GetProcAddress(madchook, "CreateProcessExA");
-		assert(CreateProcessExA);
+		BASIC_W32_ASSERT(CreateProcessExA);
 		
 		log_push("Starting WA...\r\n");
-		assert(CreateProcessExA(NULL, worms_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo, std::string(wa_path + "\\HookLib.dll").c_str()));
+		BASIC_W32_ASSERT(CreateProcessExA(NULL, worms_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo, std::string(wa_path + "\\HookLib.dll").c_str()));
 	}else{
 		log_push("Starting WA...\r\n");
-		assert(CreateProcess(NULL, worms_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo));
+		BASIC_W32_ASSERT(CreateProcess(NULL, worms_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo));
 	}
 	
 	worms_process = pinfo.hProcess;
@@ -616,4 +605,28 @@ void wa_capture::pad_deadzone(const char *raw_pcm, size_t samples) {
 			dead_max = sample;
 		}
 	}
+}
+
+/* Delete frames and audio files from capture directory along with the directory
+ * itself (if empty).
+*/
+void delete_capture(const std::string &dir) {
+	for(unsigned int i = 0;; i++) {
+		char frame_n[16];
+		snprintf(frame_n, sizeof(frame_n), "%06u", i);
+		
+		std::string file = dir + "\\" + FRAME_PREFIX + frame_n + ".png";
+		
+		if(GetFileAttributes(file.c_str()) != INVALID_FILE_ATTRIBUTES) {
+			DeleteFile(file.c_str());
+		}else{
+			break;
+		}
+	}
+	
+	DeleteFile(std::string(dir + "\\" + FRAME_PREFIX + "pass1.wav").c_str());
+	DeleteFile(std::string(dir + "\\" + FRAME_PREFIX + "pass2.wav").c_str());
+	DeleteFile(std::string(dir + "\\" + FRAME_PREFIX + "audio.wav").c_str());
+	
+	RemoveDirectory(dir.c_str());
 }

@@ -20,13 +20,40 @@
 
 #include <string>
 #include <sstream>
+#include <stdexcept>
 
 #include "reg.hpp"
 
 #define LIST_HEIGHT 200
 
+/* Win32 API calls that are unlikely to fail (i.e CreateEvent) */
+#define BASIC_W32_ASSERT(expr) { \
+	if(!(expr)) { \
+		throw arec::error(std::string("Win32 function call failed at ") + __FILE__ + ":" + to_string(__LINE__) + ":\r\n" + #expr + "\r\nGetLastError() = " + to_string(GetLastError()) + " (" + w32_error(GetLastError()) + ")"); \
+	} \
+}
+
+/* Asserts that should never ever ever fail.
+ * Use only to verify internal consistencies.
+*/
+#define INTERNAL_ASSERT(expr) { \
+	if(!(expr)) { \
+		throw arec::error(std::string("Internal error at ") + __FILE__ + ":" + to_string(__LINE__) + ":\r\nAssertion: " + #expr); \
+	} \
+}
+
 extern bool wormkit_exe, wormkit_ds;
 extern reg_handle wa_options;
+
+namespace arec {
+	struct fatal_error: public std::runtime_error {
+		fatal_error(const std::string &err): runtime_error(err) {}
+	};
+	
+	struct error: public std::runtime_error {
+		error(const std::string &err): runtime_error(err) {}
+	};
+};
 
 template<class T> std::string to_string(const T& in) {
 	std::stringstream os;
@@ -36,13 +63,22 @@ template<class T> std::string to_string(const T& in) {
 };
 
 struct arec_config {
+	/* Last browsed directories in open/save dialogs */
 	std::string replay_dir;
 	std::string video_dir;
+	
+	std::string replay_file, replay_name;	/* Full path and final component of replay filename */
+	std::string capture_dir;		/* Directory containing frames/audio */
 	
 	unsigned int width, height;
 	unsigned int frame_rate;
 	
 	std::string start_time, end_time;
+	
+	/* Output video file name/formats */
+	std::string video_file;
+	unsigned int video_format;
+	unsigned int audio_format;
 	
 	bool enable_audio;
 	unsigned int audio_source;
@@ -72,6 +108,13 @@ struct arec_config {
 	bool wa_transparent_labels;
 	
 	bool load_wormkit_dlls;
+	
+	bool do_cleanup;
 };
+
+extern arec_config config;
+
+const char *w32_error(DWORD errnum);
+std::string escape_filename(std::string name);
 
 #endif /* !AREC_MAIN_HPP */
