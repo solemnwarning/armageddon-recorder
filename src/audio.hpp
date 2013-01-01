@@ -19,114 +19,39 @@
 #define AREC_AUDIO_HPP
 
 #include <windows.h>
-#include <list>
 #include <string>
 #include <vector>
+#include <map>
 #include <stdint.h>
-#include <stdio.h>
+#include <gorilla/ga.h>
 
 #include "main.hpp"
 
-#define WAVE_FORMAT_96M08 0x00010000
-#define WAVE_FORMAT_96S08 0x00020000
-#define WAVE_FORMAT_96M16 0x00040000
-#define WAVE_FORMAT_96S16 0x00080000
+/* Format to use when generating the game audio. */
+#define SAMPLE_RATE 44100
+#define SAMPLE_BITS 16
+#define CHANNELS    2
 
-extern std::vector<WAVEINCAPS> audio_sources;
-
-struct wav_hdr {
-	uint32_t chunk0_id;
-	uint32_t chunk0_size;
-	uint32_t chunk0_format;
+struct wav_file
+{
+	std::string path;
 	
-	uint32_t chunk1_id;
-	uint32_t chunk1_size;
-	uint16_t chunk1_format;
-	uint16_t chunk1_channels;
-	uint32_t chunk1_sample_rate;
-	uint32_t chunk1_byte_rate;
-	uint16_t chunk1_align;
-	uint16_t chunk1_bits_sample;
+	ga_Sound *sound;
 	
-	uint32_t chunk2_id;
-	uint32_t chunk2_size;
+	wav_file(const std::string &_path);
+	wav_file(const wav_file &src);
 	
-	wav_hdr() {
-		memcpy(&chunk0_id, "RIFF", 4);
-		chunk0_size = sizeof(wav_hdr) - 8;
-		memcpy(&chunk0_format, "WAVE", 4);
-		
-		memcpy(&chunk1_id, "fmt ", 4);
-		chunk1_size = 16;
-		chunk1_format = 1;
-		//chunk1_channels = CHANNELS;
-		//chunk1_sample_rate = SAMPLE_RATE;
-		//chunk1_byte_rate = BYTES_SEC;
-		//chunk1_align = BLOCK_ALIGN;
-		//chunk1_bits_sample = SAMPLE_BITS;
-		
-		memcpy(&chunk2_id, "data", 4);
-		chunk2_size = 0;
-	}
+	~wav_file();
 };
 
-struct audio_recorder {
-	HANDLE &event;
-	
-	HWAVEIN wavein;
-	std::list<WAVEHDR> buffers;
-	
-	unsigned int buf_size;
-	
-	audio_recorder(const arec_config &config, HANDLE ev);
-	~audio_recorder();
-	
-	void start();
-	void stop();
-	
-	void add_buffer();
-	std::list<WAVEHDR> get_buffers();
-};
+extern std::map<uint32_t, wav_file> wav_files;
 
-struct wav_writer {
-	wav_hdr header;
-	FILE *file;
-	
-	unsigned int sample_size;
-	unsigned int sample_rate;
-	
-	char *last_sample;
-	
-	wav_writer(const arec_config &config, const std::string &filename);
-	~wav_writer();
-	
-	void force_length(size_t samples);
-	
-	void write_at(size_t offset, const void *data, size_t size);
-	void append_data(const void *data, size_t size);
-	
-	void extend_sample(size_t samples);
-};
+void init_wav_search_path();
 
-struct wav_reader {
-	FILE *file;
-	
-	unsigned int sample_size;
-	
-	wav_reader(const std::string &filename);
-	~wav_reader();
-	
-	void reset();
-	void skip_samples(size_t samples);
-	
-	size_t read_data(void *buf, size_t size, size_t max);
-	size_t read_samples(void *buf, size_t max_samples);
-};
+uint32_t get_wav_file_hash(const char *path);
+wav_file *wav_search(uint32_t hash, std::string path);
+wav_file *get_wav_file(uint32_t hash);
 
-std::vector<WAVEINCAPS> get_audio_sources();
-
-std::string wave_error(MMRESULT errnum);
-
-bool test_audio_format(unsigned int source_id, unsigned int rate, unsigned int channels, unsigned int bits);
+bool make_output_wav();
 
 #endif /* !AREC_AUDIO_HPP */

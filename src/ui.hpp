@@ -18,11 +18,12 @@
 #ifndef AREC_UI_HPP
 #define AREC_UI_HPP
 
-#define WM_WAEXIT WM_USER+1
-#define WM_PUSHLOG WM_USER+2
-#define WM_BEGIN WM_USER+3
-#define WM_ENC_EXIT WM_USER+4
-#define WM_CAUGHT WM_USER+5
+#define WM_WAEXIT     (WM_USER + 1)
+#define WM_PUSHLOG    (WM_USER + 2)
+#define WM_BEGIN      (WM_USER + 3)
+#define WM_ENC_EXIT   (WM_USER + 4)
+#define WM_AUDIO_DONE (WM_USER + 6)
+#define WM_ABORTED    (WM_USER + 7)
 
 extern HWND progress_dialog;
 

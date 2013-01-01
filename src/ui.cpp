@@ -23,6 +23,7 @@
 #include "capture.hpp"
 #include "resource.h"
 #include "encode.hpp"
+#include "audio.hpp"
 
 HWND progress_dialog = NULL;
 
@@ -53,13 +54,37 @@ double get_window_double(HWND window) {
 	return atof(s.c_str());
 }
 
-INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-	static wa_capture *capture = NULL;
+static DWORD WINAPI audio_gen_thread(LPVOID lpParameter)
+{
+	if(make_output_wav())
+	{
+		PostMessage(progress_dialog, WM_AUDIO_DONE, 0, 0);
+	}
+	else{
+		PostMessage(progress_dialog, WM_ABORTED, 0, 0);
+	}
 	
+	return 0;
+}
+
+enum capture_state
+{
+	s_init,
+	s_capture,
+	s_audio_gen,
+	s_encode,
+	s_done
+};
+
+INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
 	static int return_code;
 	
+	static capture_state state = s_init;
+	
 	switch(msg) {
-		case WM_INITDIALOG: {
+		case WM_INITDIALOG:
+		{
 			progress_dialog = hwnd;
 			return_code = 0;
 			
@@ -71,60 +96,93 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			return TRUE;
 		}
 		
-		case WM_CLOSE: {
-			ffmpeg_cleanup();
-			
-			delete capture;
-			capture = NULL;
-			
-			EndDialog(hwnd, return_code);
-			return TRUE;
-		}
-		
-		case WM_BEGIN: {
-			/* Start capture */
-			
-			try {
-				capture = new wa_capture(config);
-			} catch(const arec::error &err) {
-				SendMessage(hwnd, WM_CAUGHT, (WPARAM)err.what(), 0);
+		case WM_CLOSE:
+		{
+			if(state == s_done)
+			{
+				ffmpeg_cleanup();
+				
+				EndDialog(hwnd, return_code);
 			}
 			
 			return TRUE;
 		}
 		
-		case WM_WAEXIT: {
-			if(encoders[config.video_format].type == encoder_info::ffmpeg) {
+		case WM_BEGIN:
+		{
+			if(start_capture())
+			{
+				state = s_capture;
+			}
+			else{
+				PostMessage(hwnd, WM_ABORTED, 0, 0);
+			}
+			
+			return TRUE;
+		}
+		
+		case WM_WAEXIT:
+		{
+			log_push("WA exited with status " + to_string((DWORD)(wp)) + "\r\n");
+			
+			finish_capture();
+			
+			log_push("Creating audio file...\r\n");
+			
+			HANDLE at = CreateThread(NULL, 0, &audio_gen_thread, NULL, 0, NULL);
+			assert(at);
+			
+			CloseHandle(at);
+			
+			state = s_audio_gen;
+			
+			return TRUE;
+		}
+		
+		case WM_AUDIO_DONE:
+		{
+			if(encoders[config.video_format].type == encoder_info::ffmpeg)
+			{
 				log_push("Starting encoder...\r\n");
 				
-				try {
-					ffmpeg_run(config);
-				} catch(const arec::error &err) {
-					SendMessage(hwnd, WM_CAUGHT, (WPARAM)err.what(), 0);
+				if(ffmpeg_run())
+				{
+					state = s_encode;
 				}
-			}else{
+				else{
+					PostMessage(hwnd, WM_ABORTED, 0, 0);
+				}
+			}
+			else{
 				PostMessage(hwnd, WM_ENC_EXIT, 0, 0);
 			}
 			
 			return TRUE;
 		}
 		
-		case WM_ENC_EXIT: {
+		case WM_ENC_EXIT:
+		{
 			/* The encoder process has exited */
 			
-			if(config.do_cleanup) {
+			ffmpeg_cleanup();
+			
+			if(config.do_cleanup)
+			{
 				log_push("Cleaning up...\r\n");
-				
-				delete_capture(config.capture_dir);
+				delete_capture();
 			}
 			
 			log_push("Complete!\r\n");
+			
 			EnableWindow(GetDlgItem(hwnd, IDOK), TRUE);
+			
+			state = s_done;
 			
 			return TRUE;
 		}
 		
-		case WM_COMMAND: {
+		case WM_COMMAND:
+		{
 			if(HIWORD(wp) == BN_CLICKED && LOWORD(wp) == IDOK) {
 				return_code = 1;
 				PostMessage(hwnd, WM_CLOSE, 0, 0);
@@ -133,7 +191,8 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			return TRUE;
 		}
 		
-		case WM_PUSHLOG: {
+		case WM_PUSHLOG:
+		{
 			/* Append text to the log window
 			 * WPARAM: const std::string* containing text to append
 			*/
@@ -147,24 +206,14 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			return TRUE;
 		}
 		
-		case WM_CAUGHT: {
-			/* Exception caught, capture/encode/etc aborted
-			 * WPARAM: const char* containing error details
-			 * LPARAM: Nonzero if WPARAM should be deleted
-			*/
-			
+		case WM_ABORTED:
+		{
+			finish_capture();
 			ffmpeg_cleanup();
 			
-			delete capture;
-			capture = NULL;
-			
-			log_push((const char*)wp);
-			
-			if(lp) {
-				delete (char*)wp;
-			}
-			
 			MessageBox(hwnd, "Capture aborted due to error.\nCheck log window for details.", NULL, MB_OK | MB_ICONERROR);
+			
+			state = s_done;
 			
 			return TRUE;
 		}

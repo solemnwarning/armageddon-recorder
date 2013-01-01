@@ -62,7 +62,7 @@ const char *chat_levels[] = {
 arec_config config;
 
 std::string wa_path;
-bool wormkit_exe, wormkit_ds;
+bool wormkit_exe;
 
 bool com_init = false;		/* COM has been initialized in the main thread */
 
@@ -195,11 +195,8 @@ void set_combo_height(HWND combo) {
 
 void check_wormkit() {
 	wormkit_exe = (
-		GetFileAttributes(std::string(wa_path + "\\madCHook.dll").c_str()) != INVALID_FILE_ATTRIBUTES &&
 		GetFileAttributes(std::string(wa_path + "\\HookLib.dll").c_str()) != INVALID_FILE_ATTRIBUTES
 	);
-	
-	wormkit_ds = (GetFileAttributes(std::string(wa_path + "\\dsound.dll").c_str()) != INVALID_FILE_ATTRIBUTES);
 }
 
 INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -208,10 +205,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			SendMessage(hwnd, WM_SETICON, 0, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON16)));
 			SendMessage(hwnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON32)));
 			
-			EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe || wormkit_ds) ? MF_ENABLED : MF_GRAYED);
-			CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, ((wormkit_ds || wormkit_exe) && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
-			
-			CheckMenuItem(GetMenu(hwnd), DO_SECOND_PASS, config.do_second_pass ? MF_CHECKED : MF_UNCHECKED);
+			EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_exe ? MF_ENABLED : MF_GRAYED);
+			CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
 			
 			SetWindowText(GetDlgItem(hwnd, RES_X), to_string(config.width).c_str());
 			SetWindowText(GetDlgItem(hwnd, RES_Y), to_string(config.height).c_str());
@@ -224,21 +219,6 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			
 			ComboBox_SetCurSel(fmt_list, config.video_format);
 			set_combo_height(fmt_list);
-			
-			HWND audio_list = GetDlgItem(hwnd, AUDIO_SOURCE);
-			
-			ComboBox_AddString(audio_list, "None");
-			ComboBox_SetCurSel(audio_list, 0);
-			
-			for(unsigned int i = 0; i < audio_sources.size(); i++) {
-				ComboBox_AddString(audio_list, audio_sources[i].szPname);
-				
-				if(config.enable_audio && (i == config.audio_source || i == 0)) {
-					ComboBox_SetCurSel(audio_list, i + 1);
-				}
-			}
-			
-			set_combo_height(audio_list);
 			
 			SetWindowText(GetDlgItem(hwnd, FRAMES_SEC), to_string(config.frame_rate).c_str());
 			
@@ -293,14 +273,6 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						config.video_file = get_window_string(GetDlgItem(hwnd, AVI_PATH));
 						config.video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
 						config.audio_format = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_FORMAT_MENU));
-						
-						config.audio_source = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_SOURCE));
-						config.enable_audio = (config.audio_source-- > 0);
-						
-						if(config.enable_audio && !test_audio_format(config.audio_source, config.audio_rate, config.audio_channels, config.audio_bits)) {
-							MessageBox(hwnd, "Selected audio format (rate, channels, bits) is not supported by audio device", NULL, MB_OK | MB_ICONERROR);
-							break;
-						}
 						
 						std::string rx_string = get_window_string(GetDlgItem(hwnd, RES_X));
 						std::string ry_string = get_window_string(GetDlgItem(hwnd, RES_Y));
@@ -435,13 +407,16 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 					
 					case SELECT_WA_DIR: {
 						std::string dir = choose_dir(hwnd, "Select Worms Armageddon directory:", "wa.exe");
-						if(!dir.empty()) {
+						if(!dir.empty())
+						{
 							wa_path = dir;
 							
 							check_wormkit();
 							
-							EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe || wormkit_ds) ? MF_ENABLED : MF_GRAYED);
-							CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, ((wormkit_ds || wormkit_exe) && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
+							EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_exe ? MF_ENABLED : MF_GRAYED);
+							CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
+							
+							init_wav_search_path();
 						}
 						
 						break;
@@ -455,12 +430,6 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 					
 					case ADV_OPTIONS: {
 						DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_OPTIONS), hwnd, &options_dproc);
-						break;
-					}
-					
-					case DO_SECOND_PASS: {
-						config.do_second_pass = !config.do_second_pass;
-						CheckMenuItem(GetMenu(hwnd), DO_SECOND_PASS, config.do_second_pass ? MF_CHECKED : MF_UNCHECKED);
 						break;
 					}
 					
@@ -521,68 +490,9 @@ std::string escape_filename(std::string name) {
 		break; \
 	}
 
-#define DOUBLE_IN(opt_var, window_id, opt_name, min, max) \
-	if((tmp.opt_var = get_window_double(GetDlgItem(hwnd, window_id))) == -1 || tmp.opt_var < min || tmp.opt_var > max) { \
-		MessageBox(hwnd, std::string(std::string(opt_name) + " must be a number between " + to_string(min) + " and " + to_string(max)).c_str(), NULL, MB_OK | MB_ICONERROR); \
-		break; \
-	}
-
 INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	switch(msg) {
 		case WM_INITDIALOG: {
-			SetWindowText(GetDlgItem(hwnd, MAX_SKEW), to_string(config.max_skew).c_str());
-			SetWindowText(GetDlgItem(hwnd, AUDIO_BUF_TIME), to_string(config.audio_buf_time).c_str());
-			SetWindowText(GetDlgItem(hwnd, AUDIO_BUF_COUNT), to_string(config.audio_buf_count).c_str());
-			
-			HWND list = GetDlgItem(hwnd, AUDIO_RATE);
-			set_combo_height(list);
-			
-			ComboBox_AddString(list, "11.025 kHz");
-			ComboBox_AddString(list, "22.05 kHz");
-			ComboBox_AddString(list, "44.1 kHz");
-			ComboBox_AddString(list, "96 kHz");
-			
-			switch(config.audio_rate) {
-				case 11025:
-					ComboBox_SetCurSel(list, 0);
-					break;
-					
-				case 22050:
-					ComboBox_SetCurSel(list, 1);
-					break;
-					
-				case 44100:
-					ComboBox_SetCurSel(list, 2);
-					break;
-				
-				case 96000:
-					ComboBox_SetCurSel(list, 3);
-					break;
-			};
-			
-			list = GetDlgItem(hwnd, AUDIO_CHANNELS);
-			set_combo_height(list);
-			
-			ComboBox_AddString(list, "Mono");
-			ComboBox_AddString(list, "Stereo");
-			ComboBox_SetCurSel(list, config.audio_channels - 1);
-			
-			list = GetDlgItem(hwnd, AUDIO_WIDTH);
-			set_combo_height(list);
-			
-			ComboBox_AddString(list, "8-bit");
-			ComboBox_AddString(list, "16-bit");
-			ComboBox_SetCurSel(list, config.audio_bits / 8 - 1);
-			
-			SetWindowText(GetDlgItem(hwnd, SP_BUFFER_LEN), to_string(config.sp_buffer).c_str());
-			SetWindowText(GetDlgItem(hwnd, SP_MEAN_FRAMES), to_string(config.sp_mean_frames).c_str());
-			SetWindowText(GetDlgItem(hwnd, SP_CMP_FRAMES), to_string(config.sp_cmp_frames).c_str());
-			
-			Button_SetCheck(GetDlgItem(hwnd, SP_USE_DZ), config.sp_use_dz ? BST_CHECKED : BST_UNCHECKED);
-			Button_SetCheck(GetDlgItem(hwnd, SP_DYNAMIC_DZ), config.sp_dynamic_dz ? BST_CHECKED : BST_UNCHECKED);
-			SetWindowText(GetDlgItem(hwnd, SP_STATIC_DZ), to_string(config.sp_static_dz).c_str());
-			SetWindowText(GetDlgItem(hwnd, SP_DZ_MARGIN), to_string(config.sp_dz_margin).c_str());
-			
 			SetWindowText(GetDlgItem(hwnd, MAX_ENC_THREADS), to_string(config.max_enc_threads).c_str());
 			
 			return TRUE;
@@ -592,32 +502,6 @@ INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			if(HIWORD(wp) == BN_CLICKED) {
 				if(LOWORD(wp) == IDOK) {
 					arec_config tmp = config;
-					
-					UINT_IN(max_skew, MAX_SKEW, "Max skew");
-					UINT_IN(audio_buf_time, AUDIO_BUF_TIME, "Buffer time");
-					UINT_IN(audio_buf_count, AUDIO_BUF_COUNT, "Buffer count");
-					
-					const unsigned int audio_rates[] = {11025, 22050, 44100, 96000};
-					
-					tmp.audio_rate = audio_rates[ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_RATE))];
-					
-					tmp.audio_channels = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_CHANNELS)) + 1;
-					tmp.audio_bits = (ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_WIDTH)) + 1) * 8;
-					
-					UINT_IN(sp_buffer, SP_BUFFER_LEN, "Analysis buffer");
-					UINT_IN(sp_mean_frames, SP_MEAN_FRAMES, "Average length");
-					UINT_IN(sp_cmp_frames, SP_CMP_FRAMES, "Comparison length");
-					
-					if(tmp.sp_cmp_frames % tmp.sp_mean_frames) {
-						MessageBox(hwnd, "Comparison length must be a multiple of Average length", NULL, MB_OK | MB_ICONERROR);
-						break;
-					}
-					
-					tmp.sp_use_dz = (Button_GetCheck(GetDlgItem(hwnd, SP_USE_DZ)) == BST_CHECKED);
-					tmp.sp_dynamic_dz = (Button_GetCheck(GetDlgItem(hwnd, SP_DYNAMIC_DZ)) == BST_CHECKED);
-					
-					DOUBLE_IN(sp_static_dz, SP_STATIC_DZ, "Static dead zone", 0.0, 1.0);
-					DOUBLE_IN(sp_dz_margin, SP_DZ_MARGIN, "Dynamic dead zone margin", 0.0, 1.0);
 					
 					UINT_IN(max_enc_threads, MAX_ENC_THREADS, "Max threads");
 					
@@ -645,23 +529,29 @@ INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	return FALSE;
 }
 
-int main(int argc, char **argv) {
-	InitCommonControls();
+int main(int argc, char **argv)
+{
+	SetErrorMode(SEM_FAILCRITICALERRORS);
 	
-	audio_sources = get_audio_sources();
+	gc_initialize(NULL);
+	
+	InitCommonControls();
 	
 	reg_handle reg(HKEY_CURRENT_USER, "Software\\Armageddon Recorder", KEY_QUERY_VALUE | KEY_SET_VALUE, true);
 	
 	wa_path = reg.get_string("wa_path");
-	if(wa_path.empty()) {
+	if(wa_path.empty())
+	{
 		reg_handle wa_reg(HKEY_CURRENT_USER, "Software\\Team17SoftwareLTD\\WormsArmageddon", KEY_QUERY_VALUE, false);
 		wa_path = wa_reg.get_string("PATH");
 		
-		if(wa_path.empty()) {
+		if(wa_path.empty())
+		{
 			wa_path = choose_dir(NULL, "Select Worms Armageddon directory:", "wa.exe");
 		}
 		
-		if(wa_path.empty()) {
+		if(wa_path.empty())
+		{
 			MessageBox(NULL, "Worms Armageddon must be installed.", NULL, MB_OK | MB_ICONERROR);
 			return 1;
 		}
@@ -669,6 +559,8 @@ int main(int argc, char **argv) {
 	
 	config.load_wormkit_dlls = reg.get_dword("load_wormkit_dlls", false);
 	check_wormkit();
+	
+	init_wav_search_path();
 	
 	std::string fmt = reg.get_string("selected_encoder", "Uncompressed AVI");
 	
@@ -694,27 +586,6 @@ int main(int argc, char **argv) {
 	
 	config.frame_rate = reg.get_dword("frame_rate", 50);
 	
-	config.enable_audio = reg.get_dword("enable_audio", true);
-	config.audio_source = reg.get_dword("audio_source", 0);
-	config.do_second_pass = reg.get_dword("do_second_pass", false);
-	
-	config.audio_rate = reg.get_dword("audio_sample_rate", 44100);
-	config.audio_bits = reg.get_dword("audio_sample_width", 16);
-	config.audio_channels = reg.get_dword("audio_channels", 2);
-	
-	config.audio_buf_time = reg.get_dword("audio_buf_time", 2);
-	config.audio_buf_count = reg.get_dword("audio_buf_count", 64);
-	config.max_skew = reg.get_dword("max_skew", 5);
-	
-	config.sp_buffer = reg.get_dword("sp_buffer", 60);
-	config.sp_mean_frames = reg.get_dword("sp_mean_frames", 1);
-	config.sp_cmp_frames = reg.get_dword("sp_cmp_frames", 400);
-	
-	config.sp_use_dz = reg.get_dword("sp_use_dz", true);
-	config.sp_dynamic_dz = reg.get_dword("sp_dynamic_dz", true);
-	config.sp_static_dz = reg.get_double("sp_static_dz", 0.12);
-	config.sp_dz_margin = reg.get_double("sp_dz_margin", 0.5);
-	
 	config.max_enc_threads = reg.get_dword("max_enc_threads", 0);
 	
 	config.wa_detail_level = reg.get_dword("wa_detail_level", 0);
@@ -736,27 +607,6 @@ int main(int argc, char **argv) {
 		reg.set_dword("res_y", config.height);
 		
 		reg.set_dword("frame_rate", config.frame_rate);
-		
-		reg.set_dword("enable_audio", config.enable_audio);
-		reg.set_dword("audio_source", config.audio_source);
-		reg.set_dword("do_second_pass", config.do_second_pass);
-		
-		reg.set_dword("audio_sample_rate", config.audio_rate);
-		reg.set_dword("audio_sample_width", config.audio_bits);
-		reg.set_dword("audio_channels", config.audio_channels);
-		
-		reg.set_dword("audio_buf_time", config.audio_buf_time);
-		reg.set_dword("audio_buf_count", config.audio_buf_count);
-		reg.set_dword("max_skew", config.max_skew);
-		
-		reg.set_dword("sp_buffer", config.sp_buffer);
-		reg.set_dword("sp_mean_frames", config.sp_mean_frames);
-		reg.set_dword("sp_cmp_frames", config.sp_cmp_frames);
-		
-		reg.set_dword("sp_use_dz", config.sp_use_dz);
-		reg.set_dword("sp_dynamic_dz", config.sp_dynamic_dz);
-		reg.set_double("sp_static_dz", config.sp_static_dz);
-		reg.set_double("sp_dz_margin", config.sp_dz_margin);
 		
 		reg.set_dword("max_enc_threads", config.max_enc_threads);
 		
@@ -782,6 +632,14 @@ int main(int argc, char **argv) {
 	if(com_init) {
 		CoUninitialize();
 	}
+	
+	/* Unload any wav files before gc_shutdown as they each have a gc_Sound
+	 * reference.
+	*/
+	
+	wav_files.clear();
+	
+	gc_shutdown();
 	
 	return 0;
 }

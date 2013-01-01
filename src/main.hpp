@@ -26,34 +26,10 @@
 
 #define LIST_HEIGHT 200
 
-/* Win32 API calls that are unlikely to fail (i.e CreateEvent) */
-#define BASIC_W32_ASSERT(expr) { \
-	if(!(expr)) { \
-		throw arec::error(std::string("Win32 function call failed at ") + __FILE__ + ":" + to_string(__LINE__) + ":\r\n" + #expr + "\r\nGetLastError() = " + to_string(GetLastError()) + " (" + w32_error(GetLastError()) + ")"); \
-	} \
-}
+extern std::string wa_path;
+extern bool wormkit_exe;
 
-/* Asserts that should never ever ever fail.
- * Use only to verify internal consistencies.
-*/
-#define INTERNAL_ASSERT(expr) { \
-	if(!(expr)) { \
-		throw arec::error(std::string("Internal error at ") + __FILE__ + ":" + to_string(__LINE__) + ":\r\nAssertion: " + #expr); \
-	} \
-}
-
-extern bool wormkit_exe, wormkit_ds;
 extern reg_handle wa_options;
-
-namespace arec {
-	struct fatal_error: public std::runtime_error {
-		fatal_error(const std::string &err): runtime_error(err) {}
-	};
-	
-	struct error: public std::runtime_error {
-		error(const std::string &err): runtime_error(err) {}
-	};
-};
 
 template<class T> std::string to_string(const T& in) {
 	std::stringstream os;
@@ -79,25 +55,6 @@ struct arec_config {
 	std::string video_file;
 	unsigned int video_format;
 	unsigned int audio_format;
-	
-	bool enable_audio;
-	unsigned int audio_source;
-	bool do_second_pass;
-	
-	unsigned int audio_rate;
-	unsigned int audio_channels;
-	unsigned int audio_bits;
-	
-	unsigned int audio_buf_time;
-	unsigned int audio_buf_count;
-	unsigned int max_skew;
-	
-	unsigned int sp_buffer;
-	unsigned int sp_mean_frames;
-	unsigned int sp_cmp_frames;
-	
-	bool sp_use_dz, sp_dynamic_dz;
-	double sp_static_dz, sp_dz_margin;
 	
 	unsigned int max_enc_threads;
 	

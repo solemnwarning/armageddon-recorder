@@ -17,497 +17,122 @@
 
 #include <windows.h>
 #include <sstream>
+#include <map>
 #include <assert.h>
 #include <time.h>
+#include <stdio.h>
 
 #include "capture.hpp"
-#include "audio.hpp"
 #include "ui.hpp"
+#include "audiolog.h"
+#include "main.hpp"
 
-typedef BOOL WINAPI (*CreateProcessExA_ptr)(LPCTSTR,LPTSTR,LPSECURITY_ATTRIBUTES,LPSECURITY_ATTRIBUTES,BOOL,DWORD,LPVOID,LPCTSTR,LPSTARTUPINFO,LPPROCESS_INFORMATION,LPCTSTR);
+static unsigned int frame_count;
 
-extern std::string wa_path;
+static std::map<std::string, DWORD> original_options;
 
-static DWORD WINAPI capture_worker_init(LPVOID this_ptr) {
-	try {
-		wa_capture *t = (wa_capture*)this_ptr;
-		t->worker_main();
-	} catch(arec::error err) {
-		char *str = new char[strlen(err.what()) + 1];
-		strcpy(str, err.what());
-		
-		PostMessage(progress_dialog, WM_CAUGHT, (WPARAM)str, 1);
-	}
+static HANDLE monitor_thread = NULL;
+static HANDLE wa_process     = NULL;
+static char *wa_cmdline      = NULL;
+
+/* Wait for the WA.exe process to exit and send a WM_WAEXIT message to the
+ * progress dialog with the exit code.
+*/
+static DWORD WINAPI wa_monitor(LPVOID lpParameter)
+{
+	WaitForSingleObject(wa_process, INFINITE);
+	
+	DWORD exit_code;
+	GetExitCodeProcess(wa_process, &exit_code);
+	
+	PostMessage(progress_dialog, WM_WAEXIT, (WPARAM)(exit_code), 0);
 	
 	return 0;
 }
 
-wa_capture::wa_capture(const arec_config &conf): config(conf) {
-	log_push("Preparing to capture " + config.replay_name + "...\r\n");
-	
-	delete_capture(config.capture_dir);
-	CreateDirectory(config.capture_dir.c_str(), NULL);
-	
-	if(config.enable_audio) {
-		BASIC_W32_ASSERT((audio_event = CreateEvent(NULL, FALSE, FALSE, NULL)));
-		audio_rec = new audio_recorder(config, audio_event);
+/* Returns the number of frames exported by the current capture. */
+unsigned int get_frame_count()
+{
+	while(1)
+	{
+		char path[1024];
 		
-		wav_out = new wav_writer(config, config.capture_dir + "\\" + FRAME_PREFIX + (config.do_second_pass ? "pass1.wav" : "audio.wav"));
-	}
-	
-	recorded_frames = 0;
-	last_frame_count = 0;
-	
-	p1_skew_bytes = 0;
-	
-	/* Whoever designed this API needs to die. */
-	
-	unsigned int s1_timer_ms = (1000 / config.frame_rate) * WA_INPUT_FRAMES;
-	
-	LARGE_INTEGER s1_timer_due;
-	s1_timer_due.QuadPart = -((uint64_t)s1_timer_ms * 1000000LLU);
-	
-	BASIC_W32_ASSERT((p2_s1_timer = CreateWaitableTimer(NULL, FALSE, NULL)));
-	BASIC_W32_ASSERT(SetWaitableTimer(p2_s1_timer, &s1_timer_due, s1_timer_ms, NULL, NULL, FALSE));
-	
-	p2_s1_held = false;
-	
-	this_pass = 1;
-	
-	/* Set WA options */
-	
-	set_option("DetailLevel", conf.wa_detail_level, 5);
-	set_option("DisablePhone", (conf.wa_chat_behaviour == 1 ? 0 : 1));
-	set_option("ChatPinned", (conf.wa_chat_behaviour == 2 ? 1 : 0));
-	set_option("HomeLock", config.wa_lock_camera);
-	set_option("LargerFonts", config.wa_bigger_fonts);
-	set_option("InfoTransparency", config.wa_transparent_labels);
-	
-	std::string cmdline = "\"" + wa_path + "\\WA.exe\" /getvideo"
-		" \"" + config.replay_file + "\""
-		" \"" + to_string((double)50 / (double)config.frame_rate) + "\""
-		" \"" + config.start_time + "\" \"" + config.end_time + "\""
-		" \"" + to_string(config.width) + "\" \"" + to_string(config.height) + "\""
-		" \"" + FRAME_PREFIX + "\"";
-	
-	madchook = NULL;
-	start_wa(cmdline);
-	
-	/* Create worker thread */
-	
-	BASIC_W32_ASSERT((force_exit = CreateEvent(NULL, FALSE, FALSE, NULL)));
-	BASIC_W32_ASSERT((worker_thread = CreateThread(NULL, 0, &capture_worker_init, this, 0, NULL)));
-}
-
-wa_capture::~wa_capture() {
-	SetEvent(force_exit);
-	
-	WaitForSingleObject(worker_thread, INFINITE);
-	CloseHandle(worker_thread);
-	
-	CloseHandle(force_exit);
-	
-	TerminateProcess(worms_process, 1);
-	WaitForSingleObject(worms_process, INFINITE);
-	
-	CloseHandle(worms_process);
-	delete worms_cmdline;
-	
-	if(madchook) {
-		FreeLibrary(madchook);
-	}
-	
-	/* Restore original WA options */
-	
-	for(std::map<std::string,DWORD>::iterator i = original_options.begin(); i != original_options.end(); i++) {
-		wa_options.set_dword(i->first.c_str(), i->second);
-	}
-	
-	CancelWaitableTimer(p2_s1_timer);
-	CloseHandle(p2_s1_timer);
-	
-	if(config.enable_audio) {
-		delete wav_out;
+		snprintf(path, sizeof(path), "%s\\" FRAME_PREFIX "%06u.png", config.capture_dir.c_str(), frame_count);
 		
-		delete audio_rec;
-		CloseHandle(audio_event);
-	}
-}
-
-static inline bool memeq(void *ptr_a, void *ptr_b, size_t size) {
-	size_t off = 0;
-	
-	while(off < size) {
-		if((size + off) % 4 == 0 && size - off >= 4) {
-			if(*(uint32_t*)(((char*)ptr_a) + off) != *(uint32_t*)(((char*)ptr_b) + off)) {
-				return false;
-			}
-			
-			off += 4;
-		}else if((size + off) % 2 == 0 && size - off >= 2) {
-			if(*(uint16_t*)(((char*)ptr_a) + off) != *(uint16_t*)(((char*)ptr_b) + off)) {
-				return false;
-			}
-			
-			off += 2;
-		}else{
-			if(*(uint8_t*)(((char*)ptr_a) + off) != *(uint8_t*)(((char*)ptr_b) + off)) {
-				return false;
-			}
-			
-			off++;
+		if(GetFileAttributes(path) != INVALID_FILE_ATTRIBUTES)
+		{
+			frame_count++;
 		}
-	}
-	
-	return true;
-}
-
-static BOOL CALLBACK send1_hack(HWND hwnd, LPARAM lp) {
-	wa_capture *this_ptr = (wa_capture*)lp;
-	
-	DWORD window_pid;
-	GetWindowThreadProcessId(hwnd, &window_pid);
-	
-	if(window_pid == GetProcessId(this_ptr->worms_process)) {
-		char title[32];
-		SendMessage(hwnd, WM_GETTEXT, sizeof(title), (LPARAM)title);
-		
-		if(strcmp(title, "Worms2D") == 0) {
-			PostMessage(hwnd, this_ptr->p2_s1_held ? WM_KEYUP : WM_KEYDOWN, 0x31, 0);
-			this_ptr->p2_s1_held = !this_ptr->p2_s1_held;
-			
-			return FALSE;
-		}
-	}
-	
-	return TRUE;
-}
-
-void wa_capture::worker_main() {
-	HANDLE events[] = {force_exit, worms_process, audio_event, p2_s1_timer};
-	int n_events = 2;
-	
-	/* Audio recording isn't started until the worker thread starts executing
-	 * to reduce the chance of the buffers running out and causing the multimedia
-	 * API to automatically stop recording.
-	*/
-	
-	if(config.enable_audio) {
-		audio_rec->start();
-		n_events = 3;
-	}
-	
-	while(1) {
-		DWORD wait = WaitForMultipleObjects(n_events, events, FALSE, 1000);
-		
-		switch(wait) {
-			case WAIT_OBJECT_0: {
-				return;
-			}
-			
-			case WAIT_OBJECT_0 + 2: {
-				flush_audio();
-				break;
-			}
-			
-			case WAIT_OBJECT_0 + 1: {
-				/* Worms has exited, stop recording audio and flush buffers. */
-				
-				if(config.enable_audio) {
-					audio_rec->stop();
-					flush_audio();
-					
-					delete wav_out;
-					wav_out = NULL;
-					
-					delete audio_rec;
-					audio_rec = NULL;
-				}
-				
-				DWORD exit_code;
-				GetExitCodeProcess(worms_process, &exit_code);
-				
-				log_push("WA exited with status " + to_string(exit_code) + "\r\n");
-				
-				if(config.enable_audio && config.do_second_pass) {
-					if(this_pass == 1) {
-						/* Start second pass for non-laggy audio */
-						
-						this_pass = 2;
-						
-						log_push("Starting second pass...\r\n");
-						
-						CloseHandle(worms_process);
-						delete worms_cmdline;
-						
-						audio_rec = new audio_recorder(config, audio_event);
-						wav_out = new wav_writer(config, config.capture_dir + "\\" + FRAME_PREFIX + "pass2.wav");
-						
-						std::string cmdline = "\"" + wa_path + "\\WA.exe\"";
-						
-						if(!config.start_time.empty()) {
-							cmdline.append(" /playat");
-						}
-						
-						cmdline.append(std::string(" \"") + config.replay_file + "\"");
-						
-						if(!config.start_time.empty()) {
-							cmdline.append(std::string(" \"") + config.start_time + "\"");
-						}
-						
-						start_wa(cmdline);
-						events[1] = worms_process;
-						
-						audio_rec->start();
-						
-						n_events = 4;
-						
-						break;
-					}else{
-						/* Second pass complete, create sync'd wav file */
-						
-						log_push("Searching for audio offset...\r\n");
-						
-						wav_reader pass1(config.capture_dir + "\\" + FRAME_PREFIX + "pass1.wav");
-						wav_reader pass2(config.capture_dir + "\\" + FRAME_PREFIX + "pass2.wav");
-						
-						size_t buf_samples = config.audio_rate * config.sp_buffer;
-						size_t buf_size = pass1.sample_size * buf_samples;
-						
-						char *buf1 = new char[buf_size], *buf2 = new char[buf_size];
-						
-						size_t p1_samples = pass1.read_samples(buf1, buf_samples);
-						size_t p2_samples = pass2.read_samples(buf2, buf_samples);
-						
-						/* Set deadzone min/max values */
-						
-						if(config.sp_use_dz) {
-							dead_min = dead_max = (config.audio_bits == 8 ? 128 : 0);
-							
-							if(config.sp_dynamic_dz) {
-								int zero_off = dead_min;
-								
-								pad_deadzone(buf1, p1_samples);
-								pad_deadzone(buf2, p2_samples);
-								
-								dead_min += abs(dead_min - zero_off) * config.sp_dz_margin;
-								dead_max -= abs(dead_max - zero_off) * config.sp_dz_margin;
-							}else{
-								int max_v = (config.audio_bits == 8 ? 127 : 32767);
-								
-								dead_min -= max_v * config.sp_static_dz;
-								dead_max += max_v * config.sp_static_dz;
-							}
-						}
-						
-						std::vector<int16_t> p1_avgs = gen_averages(buf1, p1_samples, 0);
-						std::vector<int16_t> p2_avgs = gen_averages(buf2, p2_samples, 0);
-						
-						size_t p1_max = p1_avgs.size() - config.sp_cmp_frames / config.sp_mean_frames;
-						size_t p2_max = p2_avgs.size() - config.sp_cmp_frames / config.sp_mean_frames;
-						
-						size_t off_multi = (config.audio_rate / config.frame_rate) * config.sp_mean_frames;
-						
-						size_t best_off = 0, best_variation = (size_t)(-1);
-						
-						for(size_t p1_off = 0; p1_off <= p1_max; p1_off++) {
-							for(size_t p2_off = 0; p2_off <= p2_max; p2_off++) {
-								unsigned int variation = calc_variation(p1_avgs, p1_off, p2_avgs, p2_off);
-								
-								if(variation < best_variation) {
-									best_variation = variation;
-									best_off = (p1_off > p2_off ? p1_off - p2_off : p2_off - p1_off) * off_multi;
-								}
-							}
-						}
-						
-						log_push("Best pass 2 offset appears to be " + to_string(best_off) + "\r\n");
-						
-						log_push("Writing audio.wav...\r\n");
-						
-						wav_out = new wav_writer(config, config.capture_dir + "\\" + FRAME_PREFIX + "audio.wav");
-						
-						pass2.reset();
-						pass2.skip_samples(best_off);
-						
-						size_t samples, write_samples = (config.audio_rate / config.frame_rate) * count_frames();
-						
-						while(write_samples && (samples = pass2.read_samples(buf1, buf_samples))) {
-							if(samples > write_samples) {
-								samples = write_samples;
-								write_samples = 0;
-							}else{
-								write_samples -= samples;
-							}
-							
-							wav_out->append_data(buf1, samples * pass2.sample_size);
-						}
-						
-						delete wav_out;
-						wav_out = NULL;
-						
-						delete buf1;
-						delete buf2;
-					}
-				}
-				
-				/* Notify progress dialog that capture is finished */
-				PostMessage(progress_dialog, WM_WAEXIT, 0, 0);
-				
-				return;
-			}
-			
-			case WAIT_OBJECT_0 + 3: {
-				/* Disgusting hack to repeatedly send a 1 keypress to
-				 * the WA process to make second pass replay start.
-				 *
-				 * Key state is toggled each time as it must be held
-				 * down for at least one frame in order for WA to
-				 * acknowledge it.
-				*/
-				
-				EnumWindows(&send1_hack, (LPARAM)this);
-				
-				break;
-			}
-			
-			default:
-				break;
-		}
-		
-		/* Terminate WA to finish the second pass replay once it has been running
-		 * for the length of the replay plus MAX_WA_LOAD_TIME seconds.
-		 *
-		 * TODO: Figure out a way to actually detect the current replay position.
-		 * Maybe get an end time option added to WA when not exporting replays?
-		*/
-		
-		if(this_pass == 2 && (time_t)(worms_started + count_frames() / config.frame_rate + MAX_WA_LOAD_TIME) <= time(NULL)) {
-			TerminateProcess(worms_process, 0);
-		}
-	}
-}
-
-bool wa_capture::frame_exists(unsigned int frame) {
-	char num_buf[16];
-	sprintf(num_buf, "%06d", frame);
-	
-	std::string path = config.capture_dir + "\\" + FRAME_PREFIX + num_buf + ".png";
-	
-	return (GetFileAttributes(path.c_str()) != INVALID_FILE_ATTRIBUTES);
-}
-
-unsigned int wa_capture::count_frames() {
-	while(frame_exists(last_frame_count)) {
-		last_frame_count++;
-	}
-	
-	return last_frame_count;
-}
-
-void wa_capture::flush_audio() {
-	if(this_pass == 2) {
-		pass2_flush();
-		return;
-	}
-	
-	size_t frames = count_frames();
-	
-	std::list<WAVEHDR> tmp_buffers = audio_rec->get_buffers();
-	
-	audio_buffers.insert(audio_buffers.end(), tmp_buffers.begin(), tmp_buffers.end());
-	
-	if(frames == recorded_frames || audio_buffers.empty()) {
-		/* No new frames dumped or no audio available */
-		return;
-	}
-	
-	size_t frame_bytes = (wav_out->sample_rate * wav_out->sample_size) / config.frame_rate;
-	size_t frame_samples = wav_out->sample_rate / config.frame_rate;
-	
-	while(frames > recorded_frames) {
-		ssize_t buf_start = frames + p1_skew_bytes / frame_bytes;
-		
-		for(std::list<WAVEHDR>::reverse_iterator b = audio_buffers.rbegin(); b != audio_buffers.rend();) {
-			buf_start -= b->dwBytesRecorded / frame_bytes;
-			
-			size_t p_buf_start = buf_start >= 0 ? buf_start : 0;
-			
-			if(p_buf_start > recorded_frames) {
-				if(++b == audio_buffers.rend()) {
-					/* There's a gap in the audio stream, or WA is exporting
-					 * frames faster than it should.
-					*/
-					
-					/* Allow n frames of leeway to allow for frame writing being
-					 * out of sync.
-					*/
-					
-					if(recorded_frames + config.max_skew >= p_buf_start) {
-						return;
-					}
-					
-					p1_skew_bytes = 0;
-					
-					wav_out->extend_sample((p_buf_start - recorded_frames) * frame_samples);
-					recorded_frames += p_buf_start - recorded_frames;
-					
-					b--;
-				}else{
-					continue;
-				}
-			}
-			
-			/* The needed audio may be further in due to lag */
-			
-			INTERNAL_ASSERT((ssize_t)recorded_frames >= buf_start);
-			
-			size_t skip_bytes = (recorded_frames - buf_start) * frame_bytes;
-			
-			if((p1_skew_bytes + skip_bytes) / frame_bytes <= config.max_skew) {
-				p1_skew_bytes += skip_bytes;
-				skip_bytes = 0;
-			}else{
-				p1_skew_bytes = 0;
-			}
-			
-			wav_out->append_data(b->lpData + skip_bytes, b->dwBytesRecorded - skip_bytes);
-			recorded_frames += (b->dwBytesRecorded - skip_bytes) / frame_bytes;
-			
+		else{
 			break;
 		}
 	}
 	
-	/* Purge old buffers */
-	
-	for(std::list<WAVEHDR>::iterator b = audio_buffers.begin(); b != audio_buffers.end(); b++) {
-		delete b->lpData;
-	}
-	
-	audio_buffers.clear();
+	return frame_count;
 }
 
-void wa_capture::pass2_flush() {
-	std::list<WAVEHDR> buffers = audio_rec->get_buffers();
-	
-	for(std::list<WAVEHDR>::iterator b = buffers.begin(); b != buffers.end(); b++) {
-		wav_out->append_data(b->lpData, b->dwBytesRecorded);
-	}
-}
-
-void wa_capture::set_option(const char *name, DWORD value, DWORD def_value) {
-	original_options.insert(std::make_pair<const char*,DWORD>(name, wa_options.get_dword(name, def_value)));
+static void set_option(const char *name, DWORD value, DWORD def_value = 0)
+{
+	original_options.insert(std::make_pair(name, wa_options.get_dword(name, def_value)));
 	wa_options.set_dword(name, value);
 }
 
-void wa_capture::start_wa(std::string cmdline) {
-	if(wormkit_ds && !config.load_wormkit_dlls) {
-		/* Prevent WormKitDS from loading modules */
-		cmdline.append(" /nowk");
+static void restore_options()
+{
+	for(std::map<std::string, DWORD>::iterator i = original_options.begin(); i != original_options.end(); i++)
+	{
+		wa_options.set_dword(i->first.c_str(), i->second);
 	}
 	
-	worms_cmdline = new char[cmdline.length() + 1];
-	strcpy(worms_cmdline, cmdline.c_str());
+	original_options.clear();
+}
+
+bool start_capture()
+{
+	log_push("Preparing to capture " + config.replay_name + "...\r\n");
+	
+	frame_count = 0;
+	
+	/* Delete any previous capture and create an empty capture directory as
+	 * some code depends on it being there.
+	*/
+	
+	delete_capture();
+	CreateDirectory(config.capture_dir.c_str(), NULL);
+	
+	/* Override WA options. The originals are restored when the capture is
+	 * finished.
+	 * 
+	 * TODO: Store originals somewhere nonvolatile?
+	*/
+	
+	set_option("DetailLevel",      config.wa_detail_level,        5);
+	set_option("DisablePhone",     config.wa_chat_behaviour != 1, 0);
+	set_option("ChatPinned",       config.wa_chat_behaviour == 2, 0);
+	set_option("HomeLock",         config.wa_lock_camera,         0);
+	set_option("LargerFonts",      config.wa_bigger_fonts,        0);
+	set_option("InfoTransparency", config.wa_transparent_labels,  0);
+	
+	/* Build the command line and copy it to a persistent buffer. */
+	
+	std::string cmdline = "\"" + wa_path + "\\WA.exe\" /getvideo"
+		" \"" + config.replay_file + "\""
+		" \"" + to_string((double)(50) / config.frame_rate) + "\""
+		" \"" + config.start_time + "\" \"" + config.end_time + "\""
+		" \"" + to_string(config.width) + "\" \"" + to_string(config.height) + "\""
+		" \"" + FRAME_PREFIX + "\"";
+	
+	wa_cmdline = new char[cmdline.length() + 1];
+	strcpy(wa_cmdline, cmdline.c_str());
+	
+	/* Environment variables used by dsound.dll */
+	
+	SetEnvironmentVariable("AREC_CAPTURE_DIRECTORY", config.capture_dir.c_str());
+	
+	if(config.load_wormkit_dlls)
+	{
+		SetEnvironmentVariable("AREC_LOAD_WORMKIT", "1");
+	}
 	
 	STARTUPINFO sinfo;
 	memset(&sinfo, 0, sizeof(sinfo));
@@ -515,118 +140,72 @@ void wa_capture::start_wa(std::string cmdline) {
 	
 	PROCESS_INFORMATION pinfo;
 	
-	if(wormkit_exe && !wormkit_ds && config.load_wormkit_dlls) {
-		log_push("Loading madCHook...\r\n");
-		BASIC_W32_ASSERT(madchook || (madchook = LoadLibrary(std::string(wa_path + "\\madCHook.dll").c_str())));
+	log_push("Starting WA...\r\n");
+	
+	if(!CreateProcess(NULL, wa_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo))
+	{
+		log_push(std::string("Could not execute WA.exe: ") + w32_error(GetLastError()) + "\r\n");
 		
-		CreateProcessExA_ptr CreateProcessExA = (CreateProcessExA_ptr)GetProcAddress(madchook, "CreateProcessExA");
-		BASIC_W32_ASSERT(CreateProcessExA);
+		finish_capture();
 		
-		log_push("Starting WA...\r\n");
-		BASIC_W32_ASSERT(CreateProcessExA(NULL, worms_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo, std::string(wa_path + "\\HookLib.dll").c_str()));
-	}else{
-		log_push("Starting WA...\r\n");
-		BASIC_W32_ASSERT(CreateProcess(NULL, worms_cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sinfo, &pinfo));
+		return false;
 	}
 	
-	worms_process = pinfo.hProcess;
+	wa_process = pinfo.hProcess;
 	CloseHandle(pinfo.hThread);
 	
-	worms_started = time(NULL);
+	assert((monitor_thread = CreateThread(NULL, 0, &wa_monitor, NULL, 0, NULL)));
+	
+	return true;
 }
 
-std::vector<int16_t> wa_capture::gen_averages(char *raw_pcm, size_t samples, int16_t dead_val) {
-	int avg = 0;
-	size_t avg_count = 0;
-	
-	samples *= config.audio_channels;
-	
-	size_t sample_size = config.audio_bits / 8;
-	size_t samples_per_avg = (config.audio_rate / config.frame_rate) * config.sp_mean_frames * config.audio_channels;
-	
-	std::vector<int16_t> averages;
-	
-	for(size_t s = 0; s + sample_size <= samples; s++) {
-		int sample = (sample_size == 1 ? *(uint8_t*)(raw_pcm + s * sample_size) : *(int16_t*)(raw_pcm + s * sample_size));
-		
-		/* Replace any samples below a certain threshold with dead_val, used to reduce
-		 * the chance of synchronizing on background music or silence.
-		*/
-		
-		avg += (config.sp_use_dz && sample >= dead_min && sample <= dead_max ? dead_val : sample);
-		
-		if(++avg_count == samples_per_avg) {
-			averages.push_back(avg / avg_count);
-			
-			avg = 0;
-			avg_count = 0;
-		}
-	}
-	
-	return averages;
-}
-
-unsigned int wa_capture::calc_variation(const std::vector<int16_t> &a, size_t a_min, const std::vector<int16_t> &b, size_t b_min) {
-	uint64_t var = 0;
-	unsigned int var_count = 0, dead_count = 0;
-	
-	size_t max = config.sp_cmp_frames / config.sp_mean_frames;
-	
-	size_t ap = a_min, bp = b_min;
-	
-	for(; ap < a.size() && bp < b.size() && max--; ap++, bp++) {
-		int low = (a[ap] < b[bp] ? a[ap] : b[bp]);
-		int high = (a[ap] > b[bp] ? a[ap] : b[bp]);
-		
-		var += high - low;
-		var_count++;
-		
-		if(config.sp_use_dz && ((a[ap] >= dead_min && a[ap] <= dead_max) || (b[bp] >= dead_min && b[bp] <= dead_max))) {
-			dead_count++;
-		}
-	}
-	
-	/* TODO: Return maximum variation if too many dead samples are in set */
-	
-	return (var / var_count) * dead_count;
-}
-
-void wa_capture::pad_deadzone(const char *raw_pcm, size_t samples) {
-	samples *= config.audio_channels;
-	
-	for(size_t s = 0; s < samples; s++) {
-		int sample = (config.audio_bits == 8 ? *(uint8_t*)(raw_pcm + s) : *(int16_t*)(raw_pcm + s * 2));
-		
-		if(sample < dead_min) {
-			dead_min = sample;
-		}
-		
-		if(sample > dead_max) {
-			dead_max = sample;
-		}
-	}
-}
-
-/* Delete frames and audio files from capture directory along with the directory
- * itself (if empty).
+/* Terminate the monitor thread and WA.exe process, cleanup any resources used
+ * by the capture and undo any changes made to the WA installation.
 */
-void delete_capture(const std::string &dir) {
-	for(unsigned int i = 0;; i++) {
-		char frame_n[16];
-		snprintf(frame_n, sizeof(frame_n), "%06u", i);
+void finish_capture()
+{
+	/* Make the sure monitor thread and WA have exited before closing
+	 * their handles...
+	*/
+	
+	if(monitor_thread)
+	{
+		TerminateThread(monitor_thread, 1);
 		
-		std::string file = dir + "\\" + FRAME_PREFIX + frame_n + ".png";
+		CloseHandle(monitor_thread);
+		monitor_thread = NULL;
+	}
+	
+	if(wa_process)
+	{
+		TerminateProcess(wa_process, 1);
 		
-		if(GetFileAttributes(file.c_str()) != INVALID_FILE_ATTRIBUTES) {
-			DeleteFile(file.c_str());
-		}else{
+		CloseHandle(wa_process);
+		wa_process = NULL;
+	}
+	
+	delete wa_cmdline;
+	wa_cmdline = NULL;
+	
+	restore_options();
+}
+
+void delete_capture()
+{
+	WIN32_FIND_DATA file;
+	
+	HANDLE dir = FindFirstFile(std::string(config.capture_dir + "\\" + FRAME_PREFIX + "*").c_str(), &file);
+	
+	while(dir != INVALID_HANDLE_VALUE)
+	{
+		DeleteFile(std::string(config.capture_dir + "\\" + file.cFileName).c_str());
+		
+		if(!FindNextFile(dir, &file))
+		{
+			FindClose(dir);
 			break;
 		}
 	}
 	
-	DeleteFile(std::string(dir + "\\" + FRAME_PREFIX + "pass1.wav").c_str());
-	DeleteFile(std::string(dir + "\\" + FRAME_PREFIX + "pass2.wav").c_str());
-	DeleteFile(std::string(dir + "\\" + FRAME_PREFIX + "audio.wav").c_str());
-	
-	RemoveDirectory(dir.c_str());
+	RemoveDirectory(config.capture_dir.c_str());
 }

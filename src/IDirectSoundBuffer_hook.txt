@@ -1,0 +1,22 @@
+QueryInterface
+AddRef
+Release			IDirectSoundBuffer_hook_Release
+
+GetCaps
+GetCurrentPosition
+GetFormat
+GetVolume
+GetPan
+GetFrequency
+GetStatus
+Initialize
+Lock			IDirectSoundBuffer_hook_Lock
+Play			IDirectSoundBuffer_hook_Play
+SetCurrentPosition	IDirectSoundBuffer_hook_SetCurrentPosition
+SetFormat
+SetVolume		IDirectSoundBuffer_hook_SetVolume
+SetPan
+SetFrequency		IDirectSoundBuffer_hook_SetFrequency
+Stop			IDirectSoundBuffer_hook_Stop
+Unlock			IDirectSoundBuffer_hook_Unlock
+Restore

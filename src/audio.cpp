@@ -19,287 +19,340 @@
 #include <string>
 #include <stdio.h>
 #include <assert.h>
+#include <gorilla/ga.h>
+#include <gorilla/gau.h>
+#include <sndfile.h>
+#include <MurmurHash3.h>
 
 #include "audio.hpp"
+#include "audiolog.h"
+#include "ui.hpp"
 
-std::vector<WAVEINCAPS> audio_sources;
+std::map<uint32_t, wav_file> wav_files;
 
-#define BASIC_MM_ASSERT(expr) { \
-	MMRESULT err = expr; \
-	if(err != MMSYSERR_NOERROR) { \
-		throw arec::error(std::string("Multimedia function call failed at ") + __FILE__ + ":" + to_string(__LINE__) + ":\r\n" + #expr + "\r\nError = " + to_string(err) + " (" + wave_error(err) + ")"); \
-	} \
+wav_file::wav_file(const std::string &_path)
+{
+	path = _path;
+	
+	assert((sound = gau_load_sound_file(path.c_str(), "wav")));
 }
 
-audio_recorder::audio_recorder(const arec_config &config, HANDLE ev): event(ev) {
-	WAVEFORMATEX format;
-	format.wFormatTag = WAVE_FORMAT_PCM;
-	format.nChannels = config.audio_channels;
-	format.nSamplesPerSec = config.audio_rate;
-	format.nAvgBytesPerSec = config.audio_channels * (config.audio_bits / 8) * config.audio_rate;
-	format.nBlockAlign = config.audio_channels * (config.audio_bits / 8);
-	format.wBitsPerSample = config.audio_bits;
-	format.cbSize = 0;
+wav_file::wav_file(const wav_file &src)
+{
+	path  = src.path;
+	sound = src.sound;
 	
-	buf_size = (format.nAvgBytesPerSec / config.frame_rate) * config.audio_buf_time;
-	
-	MMRESULT err = waveInOpen(
-		&wavein,
-		config.audio_source,
-		&format,
-		(DWORD_PTR)event,
-		(DWORD_PTR)GetModuleHandle(NULL),
-		CALLBACK_EVENT
-	);
-	
-	if(err != MMSYSERR_NOERROR) {
-		throw arec::error("Cannot open wave device: " + wave_error(err));
-	}
-	
-	for(unsigned int i = 0; i < config.audio_buf_count; i++) {
-		add_buffer();
-	}
+	ga_sound_acquire(sound);
 }
 
-audio_recorder::~audio_recorder() {
-	waveInReset(wavein);
+wav_file::~wav_file()
+{
+	ga_sound_release(sound);
+}
+
+static std::vector<std::string> wav_search_path;
+
+/* Initialise the wav search path using the WA installation directory and CD-ROM
+ * if present.
+*/
+void init_wav_search_path()
+{
+	wav_search_path.clear();
 	
-	while(!buffers.empty() && buffers.front().dwFlags & WHDR_DONE) {
-		BASIC_MM_ASSERT(waveInUnprepareHeader(wavein, &(buffers.front()), sizeof(WAVEHDR)));
+	wav_search_path.push_back(wa_path + "\\DATA\\Wav\\Effects");
+	wav_search_path.push_back(wa_path + "\\FESfx");
+	wav_search_path.push_back(wa_path + "\\User\\Speech");
+	
+	char drive_root[] = "A:\\";
+	
+	FIND_CD:
+	
+	while(drive_root[0] <= 'Z')
+	{
+		UINT type = GetDriveType(drive_root);
 		
-		delete buffers.front().lpData;
-		buffers.pop_front();
-	}
-	
-	waveInClose(wavein);
-}
-
-void audio_recorder::start() {
-	BASIC_MM_ASSERT(waveInStart(wavein));
-}
-
-void audio_recorder::stop() {
-	BASIC_MM_ASSERT(waveInStop(wavein));
-}
-
-void audio_recorder::add_buffer() {
-	WAVEHDR header;
-	
-	memset(&header, 0, sizeof(header));
-	header.lpData = new char[buf_size];
-	header.dwBufferLength = buf_size;
-	
-	buffers.push_back(header);
-	
-	BASIC_MM_ASSERT(waveInPrepareHeader(wavein, &(buffers.back()), sizeof(header)));
-	BASIC_MM_ASSERT(waveInAddBuffer(wavein, &(buffers.back()), sizeof(header)));
-}
-
-std::list<WAVEHDR> audio_recorder::get_buffers() {
-	std::list<WAVEHDR> r_buffers;
-	
-	while(buffers.front().dwFlags & WHDR_DONE) {
-		MMRESULT err = waveInUnprepareHeader(wavein, &(buffers.front()), sizeof(WAVEHDR));
-		if(err != MMSYSERR_NOERROR) {
-			throw arec::error("waveInUnprepareHeader: " + wave_error(err));
-		}
+		char label[256];
+		BOOL label_ok = GetVolumeInformation(drive_root, label, sizeof(label), NULL, NULL, NULL, NULL, 0);
 		
-		r_buffers.push_back(buffers.front());
-		buffers.pop_front();
-		
-		add_buffer();
-	}
-	
-	return r_buffers;
-}
-
-std::vector<WAVEINCAPS> get_audio_sources() {
-	std::vector<WAVEINCAPS> ret;
-	
-	unsigned int num_devs = waveInGetNumDevs();
-	
-	for(unsigned int i = 0; i < num_devs; i++) {
-		WAVEINCAPS device;
-		
-		MMRESULT err = waveInGetDevCaps(i, &device, sizeof(device));
-		if(err != MMSYSERR_NOERROR) {
-			MessageBox(NULL, std::string("waveInGetDevCaps: " + wave_error(err)).c_str(), NULL, MB_OK | MB_ICONERROR | MB_TASKMODAL);
+		if(type == DRIVE_CDROM && label_ok && strcmp(label, "WA") == 0)
+		{
+			wav_search_path.push_back(std::string(drive_root) + "Data\\Streams");
+			wav_search_path.push_back(std::string(drive_root) + "Data\\User\\Fanfare");
+			wav_search_path.push_back(std::string(drive_root) + "Data\\User\\Speech");
+			
 			break;
 		}
 		
-		ret.push_back(device);
+		drive_root[0]++;
 	}
 	
-	return ret;
-}
-
-std::string wave_error(MMRESULT errnum) {
-	char err[256];
-	waveInGetErrorText(errnum, err, sizeof(err));
-	
-	return err;
-}
-
-wav_writer::wav_writer(const arec_config &config, const std::string &filename) {
-	sample_size = config.audio_channels * (config.audio_bits / 8);
-	sample_rate = config.audio_rate;
-	
-	header.chunk1_channels = config.audio_channels;
-	header.chunk1_sample_rate = config.audio_rate;
-	header.chunk1_bits_sample = config.audio_bits;
-	
-	header.chunk1_byte_rate = config.audio_rate * sample_size;
-	header.chunk1_align = sample_size;
-	
-	if(!(file = fopen(filename.c_str(), "wb"))) {
-		throw arec::error(std::string("Cannot open output WAV file: ") + w32_error(GetLastError()) + "\nFile: " + filename);
-	}
-	
-	last_sample = new char[sample_size];
-	memset(last_sample, 0, sample_size);
-}
-
-wav_writer::~wav_writer() {
-	delete last_sample;
-	fclose(file);
-}
-
-void wav_writer::force_length(size_t samples) {
-	size_t file_samples = header.chunk2_size / header.chunk1_align;
-	
-	if(samples < file_samples) {
-		size_t size = header.chunk1_align * (file_samples - samples);
-		
-		header.chunk0_size -= size;
-		header.chunk2_size -= size;
-		
-		write_at(0, &header, sizeof(header));
-		
-		/* TODO: Truncate file length */
-	}else if(samples > file_samples) {
-		size_t size = header.chunk1_align * (samples - file_samples);
-		
-		char *buf = new char[size];
-		memset(buf, 0, size);
-		
-		append_data(buf, size);
-		
-		delete buf;
-	}
-}
-
-void wav_writer::write_at(size_t offset, const void *data, size_t size) {
-	BASIC_W32_ASSERT(fseek(file, offset, SEEK_SET) == 0);
-	
-	for(size_t w = 0; w < size;) {
-		w += fwrite(((char*)data) + w, 1, size - w, file);
-		
-		if(ferror(file)) {
-			throw arec::error(std::string("Error writing WAV file: ") + w32_error(GetLastError()));
+	if(drive_root[0] > 'Z')
+	{
+		if(MessageBox(NULL, "Could not find a WA CD-ROM. Some audio may be unavailable.\r\nTry again?", "Warning", MB_YESNO | MB_ICONWARNING | MB_TASKMODAL) == IDYES)
+		{
+			drive_root[0] = 'A';
+			goto FIND_CD;
 		}
 	}
 }
 
-void wav_writer::append_data(const void *data, size_t size) {
-	INTERNAL_ASSERT((size % sample_size) == 0);
+/* Hash a wav file for identification.
+ * 
+ * Only the first AUDIO_HASH_MAX_DATA bytes of the data section are hashed.
+*/
+uint32_t get_wav_file_hash(const char *path)
+{
+	SF_INFO info;
+	memset(&info, 0, sizeof(info));
 	
-	memcpy(last_sample, ((char*)data) + size - sample_size, sample_size);
-	
-	write_at(sizeof(header) + header.chunk2_size, data, size);
-	
-	header.chunk0_size += size;
-	header.chunk2_size += size;
-	
-	write_at(0, &header, sizeof(header));
-}
-
-void wav_writer::extend_sample(size_t samples) {
-	char *buf = new char[sample_size * samples];
-	
-	for(size_t i = 0; i < samples; i++) {
-		memcpy(buf + i * sample_size, last_sample, sample_size);
+	SNDFILE *wav = sf_open(path, SFM_READ, &info);
+	if(!wav)
+	{
+		return 0;
 	}
 	
-	append_data(buf, samples * sample_size);
+	char buf[AUDIO_HASH_MAX_DATA];
+	sf_count_t size = sf_read_raw(wav, buf, AUDIO_HASH_MAX_DATA);
 	
-	delete buf;
+	sf_close(wav);
+	
+	uint32_t hash;
+	MurmurHash3_x86_32(buf, size, 0, &hash);
+	
+	return hash;
 }
 
-/* Test that the requested capture format is supported by the source device */
-
-#define MATCH_FORMAT(r, c, b, sb) \
-	if(rate == r && channels == c && bits == b && audio_sources[source_id].dwFormats & sb) { \
-		return true; \
-	}
-
-bool test_audio_format(unsigned int source_id, unsigned int rate, unsigned int channels, unsigned int bits) {
-	/* Use seperate bits for the supported rates/channels/bits? Nonsense! */
+/* Recursively search a directory for a wav file with the given hash.
+ * 
+ * Loads the file, adds it to the wav_files cache and returns a pointer to the
+ * wav_file structure on success.
+ * 
+ * Returns NULL if the file was not found or could not be loaded.
+*/
+wav_file *wav_search(uint32_t hash, std::string path)
+{
+	WIN32_FIND_DATA node;
 	
-	MATCH_FORMAT(11025, 1, 8, WAVE_FORMAT_1M08);
-	MATCH_FORMAT(11025, 2, 8, WAVE_FORMAT_1S08);
-	MATCH_FORMAT(11025, 1, 16, WAVE_FORMAT_1M16);
-	MATCH_FORMAT(11025, 2, 16, WAVE_FORMAT_1S16);
+	HANDLE dir = FindFirstFile(std::string(path + "\\*").c_str(), &node);
 	
-	MATCH_FORMAT(22050, 1, 8, WAVE_FORMAT_2M08);
-	MATCH_FORMAT(22050, 2, 8, WAVE_FORMAT_2S08);
-	MATCH_FORMAT(22050, 1, 16, WAVE_FORMAT_2M16);
-	MATCH_FORMAT(22050, 2, 16, WAVE_FORMAT_2S16);
-	
-	MATCH_FORMAT(44100, 1, 8, WAVE_FORMAT_4M08);
-	MATCH_FORMAT(44100, 2, 8, WAVE_FORMAT_4S08);
-	MATCH_FORMAT(44100, 1, 16, WAVE_FORMAT_4M16);
-	MATCH_FORMAT(44100, 2, 16, WAVE_FORMAT_4S16);
-	
-	MATCH_FORMAT(96000, 1, 8, WAVE_FORMAT_96M08);
-	MATCH_FORMAT(96000, 2, 8, WAVE_FORMAT_96S08);
-	MATCH_FORMAT(96000, 1, 16, WAVE_FORMAT_96M16);
-	MATCH_FORMAT(96000, 2, 16, WAVE_FORMAT_96S16);
-	
-	return false;
-}
-
-wav_reader::wav_reader(const std::string &filename) {
-	BASIC_W32_ASSERT((file = fopen(filename.c_str(), "rb")));
-	
-	
-	wav_hdr header;
-	INTERNAL_ASSERT(read_data(&header, sizeof(header), 1));
-	
-	sample_size = header.chunk1_channels * (header.chunk1_bits_sample / 8);
-}
-
-wav_reader::~wav_reader() {
-	fclose(file);
-}
-
-void wav_reader::reset() {
-	BASIC_W32_ASSERT(fseek(file, sizeof(wav_hdr), SEEK_SET) == 0);
-}
-
-void wav_reader::skip_samples(size_t samples) {
-	BASIC_W32_ASSERT(fseek(file, sample_size * samples, SEEK_CUR) == 0);
-}
-
-size_t wav_reader::read_data(void *buf, size_t size, size_t max) {
-	size_t blocks = 0, this_block = 0;
-	
-	while(blocks < max) {
-		while(this_block < size) {
-			this_block += fread((char*)buf + (size * blocks) + this_block, 1, size - this_block, file);
-			BASIC_W32_ASSERT(!ferror(file));
+	while(dir != INVALID_HANDLE_VALUE)
+	{
+		std::string name  = node.cFileName;
+		std::string npath = path + "\\" + name;
+		
+		if(name == "." || name == "..")
+		{
 			
-			if(feof(file)) {
-				return blocks;
+		}
+		else if(node.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		{
+			wav_file *r = wav_search(hash, npath);
+			
+			if(r)
+			{
+				FindClose(dir);
+				return r;
+			}
+		}
+		else if(strcasecmp(node.cFileName + strlen(node.cFileName) - 4, ".wav") == 0)
+		{
+			uint32_t file_hash = get_wav_file_hash(npath.c_str());
+			
+			if(file_hash && hash == file_hash)
+			{
+				FindClose(dir);
+				
+				return &(wav_files.insert(std::make_pair(hash, wav_file(npath))).first->second);
 			}
 		}
 		
-		this_block = 0;
-		blocks++;
+		if(!FindNextFile(dir, &node))
+		{
+			FindClose(dir);
+			break;
+		}
 	}
 	
-	return blocks;
+	return NULL;
 }
 
-size_t wav_reader::read_samples(void *buf, size_t max_samples) {
-	return read_data(buf, sample_size, max_samples);
+wav_file *get_wav_file(uint32_t hash)
+{
+	std::map<uint32_t, wav_file>::iterator w = wav_files.find(hash);
+	
+	if(w != wav_files.end())
+	{
+		return &(w->second);
+	}
+	
+	for(size_t i = 0; i < wav_search_path.size(); i++)
+	{
+		wav_file *file = wav_search(hash, wav_search_path[i]);
+		
+		if(file)
+		{
+			return file;
+		}
+	}
+	
+	return NULL;
+}
+
+struct audio_handle
+{
+	wav_file *file;
+	
+	ga_Handle *handle;
+	
+	audio_handle(ga_Mixer *mixer, wav_file *_file)
+	{
+		file = _file;
+		
+		assert((handle = gau_create_handle_sound(mixer, file->sound, NULL, NULL, NULL)));
+	}
+};
+
+bool make_output_wav()
+{
+	std::string log_path = config.capture_dir + "\\" FRAME_PREFIX "audio.dat";
+	std::string wav_path = config.capture_dir + "\\" FRAME_PREFIX "audio.wav";
+	
+	FILE *log = fopen(log_path.c_str(), "rb");
+	if(!log)
+	{
+		log_push(std::string("Could not open " FRAME_PREFIX "audio.dat: ") + w32_error(GetLastError()) + "\r\n");
+		return false;
+	}
+	
+	SF_INFO out_fmt;
+	
+	out_fmt.samplerate = SAMPLE_RATE;
+	out_fmt.channels   = CHANNELS;
+	out_fmt.format     = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
+	
+	SNDFILE *out_wav = sf_open(wav_path.c_str(), SFM_WRITE, &out_fmt);
+	assert(out_wav);
+	
+	struct ga_Format mixer_fmt;
+	
+	mixer_fmt.sampleRate    = SAMPLE_RATE;
+	mixer_fmt.bitsPerSample = SAMPLE_BITS;
+	mixer_fmt.numChannels   = CHANNELS;
+	
+	ga_Mixer *mixer = ga_mixer_create(&mixer_fmt, SAMPLE_RATE / config.frame_rate);
+	
+	/* Buffer to hold one frame of mixed audio. */
+	
+	size_t frame_bytes = (SAMPLE_RATE / config.frame_rate) * (SAMPLE_BITS / 8) * CHANNELS;
+	char *frame_buf    = new char[frame_bytes];
+	
+	/* Map of buf_id values to ga_Handle objects. */
+	
+	std::map<unsigned int, audio_handle> handles;
+	
+	struct audio_event event;
+	
+	unsigned int frame_num = 0;
+	
+	while(fread(&event, sizeof(event), 1, log))
+	{
+		assert(event.frame >= frame_num);
+		
+		if(event.frame != frame_num)
+		{
+			/* Mix audio for any frames before this one. */
+			
+			for(unsigned int i = 0; i < (event.frame - frame_num); i++)
+			{
+				assert(ga_mixer_mix(mixer, frame_buf) == GC_SUCCESS);
+				assert(sf_write_raw(out_wav, frame_buf, frame_bytes) == frame_bytes);
+			}
+			
+			frame_num = event.frame;
+		}
+		
+		std::map<unsigned int, audio_handle>::iterator hi = handles.find(event.buf_id);
+		
+		if(event.op == AUDIO_OP_LOAD)
+		{
+			wav_file *wav = get_wav_file(event.arg);
+			
+			if(wav)
+			{
+				if(hi != handles.end())
+				{
+					ga_handle_destroy(hi->second.handle);
+					handles.erase(hi);
+				}
+				
+				handles.insert(std::make_pair(event.buf_id, audio_handle(mixer, wav)));
+			}
+			else{
+				log_push("Unknown WAV hash: " + to_string(event.arg) + "\r\n");
+			}
+		}
+		else if(hi != handles.end())
+		{
+			audio_handle *h = &(hi->second);
+			
+			if(event.op == AUDIO_OP_FREE)
+			{
+				ga_handle_destroy(h->handle);
+				handles.erase(hi);
+			}
+			else if(event.op == AUDIO_OP_CLONE)
+			{  
+				handles.insert(std::make_pair(event.arg, audio_handle(mixer, h->file)));
+			}
+			else if(event.op == AUDIO_OP_START)
+			{
+				ga_handle_play(h->handle);
+			}
+			else if(event.op == AUDIO_OP_STOP)
+			{
+				ga_handle_stop(h->handle);
+			}
+			else if(event.op == AUDIO_OP_JMP)
+			{
+				ga_Format wav_fmt;
+				ga_handle_format(h->handle, &wav_fmt);
+				
+				ga_handle_seek(h->handle, event.arg / (wav_fmt.bitsPerSample / 8));
+			}
+			else if(event.op == AUDIO_OP_FREQ)
+			{
+				ga_Format wav_fmt;
+				ga_handle_format(h->handle, &wav_fmt);
+				
+				gc_float32 pitch = (gc_float32)(event.arg) / wav_fmt.sampleRate;
+				
+				ga_handle_setParamf(h->handle, GA_HANDLE_PARAM_PITCH, pitch);
+			}
+			else if(event.op == AUDIO_OP_VOLUME)
+			{
+				gc_float32 gain = (gc_float32)(event.arg) / 10000;
+				
+				ga_handle_setParamf(h->handle, GA_HANDLE_PARAM_GAIN, gain);
+			}
+		}
+	}
+	
+	/* Destroy any remaining ga_Handle objects. */
+	
+	for(std::map<unsigned int, audio_handle>::iterator h = handles.begin(); h != handles.end(); h++)
+	{
+		ga_handle_destroy(h->second.handle);
+	}
+	
+	handles.clear();
+	
+	delete frame_buf;
+	
+	ga_mixer_destroy(mixer);
+	
+	sf_close(out_wav);
+	
+	fclose(log);
+	
+	return true;
 }

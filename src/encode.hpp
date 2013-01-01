@@ -52,7 +52,7 @@ void load_encoders();
 
 std::string ffmpeg_cmdline(const arec_config &config);
 
-void ffmpeg_run(const arec_config &config);
+bool ffmpeg_run();
 void ffmpeg_cleanup();
 
 #endif /* !AREC_ENCODE_H */
