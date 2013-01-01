@@ -1,0 +1,4 @@
+dsound.s
+*.o
+*.exe
+*.dll
