@@ -1,3 +1,4 @@
 LIBRARY DSOUND.dll
 EXPORTS
 	DirectSoundCreate	@1
+	is_dsound_wrapper	@21

@@ -25,4 +25,6 @@ void finish_capture();
 
 void delete_capture();
 
+void restore_wa_install();
+
 #endif /* !AREC_CAPTURE_HPP */

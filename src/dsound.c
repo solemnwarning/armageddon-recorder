@@ -315,3 +315,8 @@ BOOL WINAPI DllMain(HINSTANCE me, DWORD why, LPVOID res)
 	
 	return TRUE;
 }
+
+void is_dsound_wrapper(void)
+{
+	
+}

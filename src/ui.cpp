@@ -102,6 +102,8 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 			{
 				ffmpeg_cleanup();
 				
+				progress_dialog = NULL;
+				
 				EndDialog(hwnd, return_code);
 			}
 			
@@ -228,4 +230,15 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 /* Append text to the progress dialog log window */
 void log_push(const std::string &msg) {
 	SendMessage(progress_dialog, WM_PUSHLOG, (WPARAM)&msg, 0);
+}
+
+void show_error(const std::string &msg)
+{
+	if(progress_dialog)
+	{
+		log_push(msg + "\r\n");
+	}
+	else{
+		MessageBox(NULL, msg.c_str(), NULL, MB_OK | MB_ICONERROR | MB_TASKMODAL);
+	}
 }

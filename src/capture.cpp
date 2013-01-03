@@ -87,6 +87,41 @@ static void restore_options()
 	original_options.clear();
 }
 
+#define DSOUND_PATH   std::string(wa_path + "\\dsound.dll").c_str()
+#define DSOUND_BACKUP std::string(wa_path + "\\arec_dsound.dll").c_str()
+
+static bool file_exists(const std::string &path)
+{
+	return (GetFileAttributes(path.c_str()) != INVALID_FILE_ATTRIBUTES);
+}
+
+static std::string arec_directory()
+{
+	char buf[1024];
+	assert(GetModuleFileName(NULL, buf, sizeof(buf)) < sizeof(buf));
+	
+	*(strrchr(buf, '\\')) = '\0';
+	
+	return buf;
+}
+
+/* Returns true if the named DLL exists, can be loaded and appears to be an
+ * Armageddon Recorder dsound wrapper.
+*/
+static bool dll_is_dsound_wrapper(const std::string &path)
+{
+	HMODULE dll = LoadLibrary(path.c_str());
+	
+	bool ret = (dll && GetProcAddress(dll, "is_dsound_wrapper"));
+	
+	if(dll)
+	{
+		FreeLibrary(dll);
+	}
+	
+	return ret;
+}
+
 bool start_capture()
 {
 	log_push("Preparing to capture " + config.replay_name + "...\r\n");
@@ -100,11 +135,25 @@ bool start_capture()
 	delete_capture();
 	CreateDirectory(config.capture_dir.c_str(), NULL);
 	
-	/* Override WA options. The originals are restored when the capture is
-	 * finished.
-	 * 
-	 * TODO: Store originals somewhere nonvolatile?
+	/* Rename any existing dsound.dll so we can restore it later. */
+	
+	if(file_exists(DSOUND_PATH) && !dll_is_dsound_wrapper(DSOUND_PATH) && !MoveFileEx(DSOUND_PATH, DSOUND_BACKUP, MOVEFILE_REPLACE_EXISTING))
+	{
+		show_error(std::string("Cannot rename existing dsound.dll: ") + w32_error(GetLastError()));
+		return false;
+	}
+	
+	/* Install wrapper dsound.dll to hook the DirectSound API and provide
+	 * WormKit support.
 	*/
+	
+	if(!CopyFile(std::string(arec_directory() + "\\dsound.dll").c_str(), DSOUND_PATH, FALSE))
+	{
+		show_error(std::string("Cannot copy dsound.dll to the WA directory: ") + w32_error(GetLastError()));
+		return false;
+	}
+	
+	/* Change the WA options based on the capture settings. */
 	
 	set_option("DetailLevel",      config.wa_detail_level,        5);
 	set_option("DisablePhone",     config.wa_chat_behaviour != 1, 0);
@@ -188,6 +237,7 @@ void finish_capture()
 	wa_cmdline = NULL;
 	
 	restore_options();
+	restore_wa_install();
 }
 
 void delete_capture()
@@ -208,4 +258,23 @@ void delete_capture()
 	}
 	
 	RemoveDirectory(config.capture_dir.c_str());
+}
+
+void restore_wa_install()
+{
+	if(file_exists(DSOUND_PATH))
+	{
+		if(dll_is_dsound_wrapper(DSOUND_PATH))
+		{
+			DeleteFile(DSOUND_PATH);
+		}
+		else{
+			return;
+		}
+	}
+	
+	if(file_exists(DSOUND_BACKUP) && !MoveFile(DSOUND_BACKUP, DSOUND_PATH))
+	{
+		show_error(std::string("Could not restore previous dsound.dll: ") + w32_error(GetLastError()));
+	}
 }

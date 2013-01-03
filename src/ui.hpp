@@ -34,5 +34,6 @@ double get_window_double(HWND window);
 INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
 void log_push(const std::string &msg);
+void show_error(const std::string &msg);
 
 #endif /* !AREC_UI_HPP */
