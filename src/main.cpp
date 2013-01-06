@@ -199,6 +199,37 @@ void check_wormkit() {
 	);
 }
 
+static void volume_init(HWND slider, HWND edit, int value);
+static void volume_set_edit(HWND slider, HWND edit);
+
+static void volume_init(HWND slider, HWND edit, int value)
+{
+	SendMessage(slider, TBM_SETRANGE, (WPARAM)(FALSE), MAKELPARAM(0, 100));
+	SendMessage(slider, TBM_SETTICFREQ, (WPARAM)(5), (LPARAM)(0));
+	
+	SendMessage(slider, TBM_SETPOS, (WPARAM)(TRUE), (LPARAM)(value));
+	
+	volume_set_edit(slider, edit);
+}
+
+static void volume_set_edit(HWND slider, HWND edit)
+{
+	int pos = SendMessage(slider, TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
+	
+	SetWindowText(edit, std::string(to_string(pos) + "%").c_str());
+}
+
+static void toggle_clipping(HWND hwnd)
+{
+	bool enabled = checkbox_get(GetDlgItem(hwnd, FIX_CLIPPING));
+	
+	EnableWindow(GetDlgItem(hwnd, STEP_VOL_SLIDER), enabled);
+	EnableWindow(GetDlgItem(hwnd, STEP_VOL_EDIT), enabled);
+	
+	EnableWindow(GetDlgItem(hwnd, MIN_VOL_SLIDER), enabled);
+	EnableWindow(GetDlgItem(hwnd, MIN_VOL_EDIT), enabled);
+}
+
 INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	switch(msg) {
 		case WM_INITDIALOG: {
@@ -254,6 +285,14 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			set_combo_height(audio_fmt_list);
 			
 			Button_SetCheck(GetDlgItem(hwnd, DO_CLEANUP), (config.do_cleanup ? BST_CHECKED : BST_UNCHECKED));
+			
+			volume_init(GetDlgItem(hwnd, INIT_VOL_SLIDER), GetDlgItem(hwnd, INIT_VOL_EDIT), config.init_vol);
+			
+			checkbox_set(GetDlgItem(hwnd, FIX_CLIPPING), true);
+			toggle_clipping(hwnd);
+			
+			volume_init(GetDlgItem(hwnd, STEP_VOL_SLIDER), GetDlgItem(hwnd, STEP_VOL_EDIT), config.step_vol);
+			volume_init(GetDlgItem(hwnd, MIN_VOL_SLIDER), GetDlgItem(hwnd, MIN_VOL_EDIT), config.min_vol);
 			
 			goto VIDEO_ENABLE;
 			
@@ -311,6 +350,15 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						config.wa_chat_behaviour = ComboBox_GetCurSel(GetDlgItem(hwnd, WA_CHAT));
 						
 						config.do_cleanup = Button_GetCheck(GetDlgItem(hwnd, DO_CLEANUP));
+						
+						/* Audio settings */
+						
+						config.init_vol = SendMessage(GetDlgItem(hwnd, INIT_VOL_SLIDER), TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
+						
+						config.fix_clipping = checkbox_get(GetDlgItem(hwnd, FIX_CLIPPING));
+						
+						config.step_vol = SendMessage(GetDlgItem(hwnd, STEP_VOL_SLIDER), TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
+						config.min_vol  = SendMessage(GetDlgItem(hwnd, MIN_VOL_SLIDER), TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
 						
 						if(config.video_format == 0 && config.do_cleanup) {
 							MessageBox(hwnd, "You've chosen to not create a video file and delete frames/audio when finished. You probably don't want this.", NULL, MB_OK | MB_ICONWARNING);
@@ -374,6 +422,12 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 							MessageBox(hwnd, std::string("GetOpenFileName: " + to_string(CommDlgExtendedError())).c_str(), NULL, MB_OK | MB_ICONERROR);
 						}
 						
+						break;
+					}
+					
+					case FIX_CLIPPING:
+					{
+						toggle_clipping(hwnd);
 						break;
 					}
 					
@@ -465,6 +519,39 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 					return TRUE;
 				}
 			}
+		}
+		
+		case WM_HSCROLL:
+		{
+			if((HWND)(lp) == NULL)
+			{
+				break;
+			}
+			
+			int scroll_id = GetWindowLong((HWND)(lp), GWL_ID);
+			
+			switch(scroll_id)
+			{
+				case INIT_VOL_SLIDER:
+				{
+					volume_set_edit((HWND)(lp), GetDlgItem(hwnd, INIT_VOL_EDIT));
+					break;
+				}
+				
+				case STEP_VOL_SLIDER:
+				{
+					volume_set_edit((HWND)(lp), GetDlgItem(hwnd, STEP_VOL_EDIT));
+					break;
+				}
+				
+				case MIN_VOL_SLIDER:
+				{
+					volume_set_edit((HWND)(lp), GetDlgItem(hwnd, MIN_VOL_EDIT));
+					break;
+				}
+			}
+			
+			break;
 		}
 		
 		default:
@@ -596,6 +683,12 @@ int main(int argc, char **argv)
 	
 	config.do_cleanup = reg.get_dword("do_cleanup", true);
 	
+	config.init_vol     = reg.get_dword("init_vol", 100);
+	
+	config.fix_clipping = reg.get_dword("fix_clipping", true);
+	config.step_vol     = reg.get_dword("step_vol", 5);
+	config.min_vol      = reg.get_dword("min_vol", 40);
+	
 	config.replay_dir = reg.get_string("replay_dir");
 	config.video_dir = reg.get_string("video_dir");
 	
@@ -617,6 +710,12 @@ int main(int argc, char **argv)
 		reg.set_dword("wa_transparent_labels", config.wa_transparent_labels);
 		
 		reg.set_dword("do_cleanup", config.do_cleanup);
+		
+		reg.set_dword("init_vol", config.init_vol);
+		
+		reg.set_dword("fix_clipping", config.fix_clipping);
+		reg.set_dword("step_vol", config.step_vol);
+		reg.set_dword("min_vol", config.min_vol);
 		
 		reg.set_string("replay_dir", config.replay_dir);
 		reg.set_string("video_dir", config.video_dir);

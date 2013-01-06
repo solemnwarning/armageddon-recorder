@@ -67,6 +67,13 @@ struct arec_config {
 	bool load_wormkit_dlls;
 	
 	bool do_cleanup;
+	
+	/* Audio settings */
+	
+	int init_vol;
+	
+	bool fix_clipping;
+	int step_vol, min_vol;
 };
 
 extern arec_config config;

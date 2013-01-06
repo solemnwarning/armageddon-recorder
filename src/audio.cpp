@@ -15,6 +15,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#define __STDC_LIMIT_MACROS
+
 #include <windows.h>
 #include <string>
 #include <stdio.h>
@@ -198,19 +200,64 @@ wav_file *get_wav_file(uint32_t hash)
 	return NULL;
 }
 
+/* Returns true if any of the samples in the given PCM data are at the minimum
+ * or maximum representable values.
+*/
+bool pcm_contains_clipping(const void *data, size_t samples, int bits)
+{
+	uint8_t *data_8  = (uint8_t*)(data);
+	int16_t *data_16 = (int16_t*)(data);
+	
+	for(size_t i = 0; i < samples; i++)
+	{
+		if(bits == 8)
+		{
+			uint8_t sample = *(data_8++);
+			
+			if(sample == 0 || sample == UINT8_MAX)
+			{
+				return true;
+			}
+		}
+		else if(bits == 16)
+		{
+			int16_t sample = *(data_16++);
+			
+			if(sample == INT16_MIN || sample == INT16_MAX)
+			{
+				return true;
+			}
+		}
+	}
+	
+	return false;
+}
+
 struct audio_handle
 {
 	wav_file *file;
 	
 	ga_Handle *handle;
 	
-	audio_handle(ga_Mixer *mixer, wav_file *_file)
+	audio_handle(ga_Mixer *mixer, wav_file *_file, int volume)
 	{
 		file = _file;
 		
 		assert((handle = gau_create_handle_sound(mixer, file->sound, NULL, NULL, NULL)));
+		
+		ga_handle_setParamf(handle, GA_HANDLE_PARAM_GAIN, (gc_float32)(volume) / 100);
 	}
 };
+
+void destroy_ga_handles(std::map<unsigned int, audio_handle> &handles)
+{
+	for(std::map<unsigned int, audio_handle>::iterator h = handles.begin(); h != handles.end(); h++)
+	{
+		ga_handle_destroy(h->second.handle);
+	}
+	
+	handles.clear();
+}
 
 bool make_output_wav()
 {
@@ -246,6 +293,8 @@ bool make_output_wav()
 	size_t frame_bytes = (SAMPLE_RATE / config.frame_rate) * (SAMPLE_BITS / 8) * CHANNELS;
 	char *frame_buf    = new char[frame_bytes];
 	
+	int volume = config.init_vol;
+	
 	/* Map of buf_id values to ga_Handle objects. */
 	
 	std::map<unsigned int, audio_handle> handles;
@@ -254,21 +303,47 @@ bool make_output_wav()
 	
 	unsigned int frame_num = 0;
 	
+	RESTART:
+	
 	while(fread(&event, sizeof(event), 1, log))
 	{
 		assert(event.frame >= frame_num);
 		
-		if(event.frame != frame_num)
+		/* Mix audio for any frames before this one. */
+		
+		while(frame_num < event.frame)
 		{
-			/* Mix audio for any frames before this one. */
+			frame_num++;
 			
-			for(unsigned int i = 0; i < (event.frame - frame_num); i++)
+			assert(ga_mixer_mix(mixer, frame_buf) == GC_SUCCESS);
+			assert(sf_write_raw(out_wav, frame_buf, frame_bytes) == frame_bytes);
+			
+			size_t samples = (SAMPLE_RATE / config.frame_rate) * CHANNELS;
+			
+			if(config.fix_clipping && volume > config.min_vol && pcm_contains_clipping(frame_buf, samples, SAMPLE_BITS))
 			{
-				assert(ga_mixer_mix(mixer, frame_buf) == GC_SUCCESS);
-				assert(sf_write_raw(out_wav, frame_buf, frame_bytes) == frame_bytes);
+				log_push("Clipping detected on frame " + to_string(frame_num) + " at " + to_string(volume) + "% volume\r\n");
+				
+				if((volume -= config.step_vol) < config.min_vol)
+				{
+					volume = config.min_vol;
+				}
+				
+				log_push("Trying with " + to_string(volume) + "% volume...\r\n");
+				
+				/* Restart from the beginning with the new
+				 * volume.
+				*/
+				
+				frame_num = 0;
+				
+				assert(sf_seek(out_wav, 0, SEEK_SET) == 0);
+				assert(fseek(log, 0, SEEK_SET) == 0);
+				
+				destroy_ga_handles(handles);
+				
+				goto RESTART;
 			}
-			
-			frame_num = event.frame;
 		}
 		
 		std::map<unsigned int, audio_handle>::iterator hi = handles.find(event.buf_id);
@@ -285,7 +360,7 @@ bool make_output_wav()
 					handles.erase(hi);
 				}
 				
-				handles.insert(std::make_pair(event.buf_id, audio_handle(mixer, wav)));
+				handles.insert(std::make_pair(event.buf_id, audio_handle(mixer, wav, volume)));
 			}
 			else{
 				log_push("Unknown WAV hash: " + to_string(event.arg) + "\r\n");
@@ -302,7 +377,7 @@ bool make_output_wav()
 			}
 			else if(event.op == AUDIO_OP_CLONE)
 			{  
-				handles.insert(std::make_pair(event.arg, audio_handle(mixer, h->file)));
+				handles.insert(std::make_pair(event.arg, audio_handle(mixer, h->file, volume)));
 			}
 			else if(event.op == AUDIO_OP_START)
 			{
@@ -330,21 +405,14 @@ bool make_output_wav()
 			}
 			else if(event.op == AUDIO_OP_VOLUME)
 			{
-				gc_float32 gain = (gc_float32)(event.arg) / 10000;
+				gc_float32 gain = ((gc_float32)(event.arg) / 10000) * ((gc_float32)(volume) / 100);
 				
 				ga_handle_setParamf(h->handle, GA_HANDLE_PARAM_GAIN, gain);
 			}
 		}
 	}
 	
-	/* Destroy any remaining ga_Handle objects. */
-	
-	for(std::map<unsigned int, audio_handle>::iterator h = handles.begin(); h != handles.end(); h++)
-	{
-		ga_handle_destroy(h->second.handle);
-	}
-	
-	handles.clear();
+	destroy_ga_handles(handles);
 	
 	delete frame_buf;
 	

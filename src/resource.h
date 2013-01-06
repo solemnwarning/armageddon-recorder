@@ -30,3 +30,10 @@
 #define WA_TRANSPARENT_LABELS                   40004
 #define LOAD_WORMKIT_DLLS                       40005
 #define MAX_ENC_THREADS                         40005
+#define INIT_VOL_EDIT                           40006
+#define INIT_VOL_SLIDER                         40007
+#define STEP_VOL_SLIDER                         40013
+#define STEP_VOL_EDIT                           40014
+#define MIN_VOL_SLIDER                          40015
+#define MIN_VOL_EDIT                            40016
+#define FIX_CLIPPING                            40017

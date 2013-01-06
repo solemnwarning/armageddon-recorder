@@ -16,6 +16,7 @@
 */
 
 #include <windows.h>
+#include <windowsx.h>
 #include <assert.h>
 
 #include "main.hpp"
@@ -52,6 +53,16 @@ double get_window_double(HWND window) {
 	}
 	
 	return atof(s.c_str());
+}
+
+bool checkbox_get(HWND hwnd)
+{
+	return (Button_GetCheck(hwnd) == BST_CHECKED);
+}
+
+void checkbox_set(HWND hwnd, bool checked)
+{
+	Button_SetCheck(hwnd, checked ? BST_CHECKED : BST_UNCHECKED);
 }
 
 static DWORD WINAPI audio_gen_thread(LPVOID lpParameter)

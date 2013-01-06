@@ -31,6 +31,9 @@ std::string get_window_string(HWND hwnd);
 size_t get_window_uint(HWND window);
 double get_window_double(HWND window);
 
+bool checkbox_get(HWND hwnd);
+void checkbox_set(HWND hwnd, bool checked);
+
 INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
 void log_push(const std::string &msg);
