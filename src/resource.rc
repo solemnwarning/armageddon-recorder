@@ -55,7 +55,7 @@ FONT 8, "Ms Shell Dlg"
     EDITTEXT        TIME_START, 65, 48, 35, 12, ES_AUTOHSCROLL
     EDITTEXT        TIME_END, 125, 48, 35, 12, ES_AUTOHSCROLL
     LTEXT           "Start time:", IDC_STATIC, 30, 50, 32, 8, SS_LEFT
-    LTEXT           "End:", IDC_STATIC, 106, 64, 16, 8, SS_LEFT
+    LTEXT           "End:", IDC_STATIC, 105, 50, 16, 8, SS_LEFT
     LTEXT           "(Leave empty to export whole game)", IDC_STATIC, 163, 50, 115, 8, SS_LEFT
     EDITTEXT        FRAMES_SEC, 205, 33, 35, 12, ES_AUTOHSCROLL
     LTEXT           "Frames/sec:", IDC_STATIC, 162, 35, 40, 8, SS_LEFT
