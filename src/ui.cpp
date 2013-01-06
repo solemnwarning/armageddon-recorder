@@ -28,11 +28,25 @@
 
 HWND progress_dialog = NULL;
 
-std::string get_window_string(HWND hwnd) {
-	char buf[1024];
+std::string get_window_string(HWND hwnd)
+{
+	int len = GetWindowTextLength(hwnd);
 	
-	GetWindowText(hwnd, buf, sizeof(buf));
-	return buf;
+	if(len > 0)
+	{
+		char *buf = new char[len + 1];
+		
+		GetWindowText(hwnd, buf, len + 1);
+		
+		std::string text = buf;
+		
+		delete buf;
+		
+		return text;
+	}
+	else{
+		return "";
+	}
 }
 
 size_t get_window_uint(HWND window) {
@@ -212,9 +226,9 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 			
 			HWND log = GetDlgItem(hwnd, LOG_EDIT);
 			
-			std::string buf = get_window_string(log) + *((const std::string*)wp);
+			SetWindowText(log, std::string(get_window_string(log) + *(const std::string*)(wp)).c_str());
 			
-			SetWindowText(log, buf.c_str());
+			Edit_Scroll(log, 500, -500);
 			
 			return TRUE;
 		}
