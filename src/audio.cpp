@@ -76,7 +76,7 @@ void init_wav_search_path()
 		char label[256];
 		BOOL label_ok = GetVolumeInformation(drive_root, label, sizeof(label), NULL, NULL, NULL, NULL, 0);
 		
-		if(type == DRIVE_CDROM && label_ok && strcmp(label, "WA") == 0)
+		if(type == DRIVE_CDROM && label_ok && strcasecmp(label, "WA") == 0)
 		{
 			wav_search_path.push_back(std::string(drive_root) + "Data\\Streams");
 			wav_search_path.push_back(std::string(drive_root) + "Data\\User\\Fanfare");
