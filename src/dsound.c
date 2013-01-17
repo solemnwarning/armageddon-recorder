@@ -229,7 +229,7 @@ HRESULT __stdcall IDirectSoundBuffer_hook_SetCurrentPosition(IDirectSoundBuffer_
 
 HRESULT __stdcall IDirectSoundBuffer_hook_Play(IDirectSoundBuffer_hook *self, DWORD dwReserved1, DWORD dwPriority, DWORD dwFlags)
 {
-	write_event(self->buf_id, AUDIO_OP_START, 0);
+	write_event(self->buf_id, AUDIO_OP_START, dwFlags & DSBPLAY_LOOPING ? AUDIO_FLAG_REPEAT : 0);
 	
 	return IDirectSoundBuffer_Play(self->real, dwReserved1, dwPriority, dwFlags);
 }

@@ -238,12 +238,13 @@ struct audio_handle
 	wav_file *file;
 	
 	ga_Handle *handle;
+	gau_SampleSourceLoop *loop;
 	
 	audio_handle(ga_Mixer *mixer, wav_file *_file, int volume)
 	{
 		file = _file;
 		
-		assert((handle = gau_create_handle_sound(mixer, file->sound, NULL, NULL, NULL)));
+		assert((handle = gau_create_handle_sound(mixer, file->sound, NULL, NULL, &loop)));
 		
 		ga_handle_setParamf(handle, GA_HANDLE_PARAM_GAIN, (gc_float32)(volume) / 100);
 	}
@@ -381,6 +382,14 @@ bool make_output_wav()
 			}
 			else if(event.op == AUDIO_OP_START)
 			{
+				if(event.arg & AUDIO_FLAG_REPEAT)
+				{
+					gau_sample_source_loop_set(h->loop, -1, 0);
+				}
+				else{
+					gau_sample_source_loop_clear(h->loop);
+				}
+				
 				ga_handle_play(h->handle);
 			}
 			else if(event.op == AUDIO_OP_STOP)

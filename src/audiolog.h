@@ -34,6 +34,8 @@
 #define AUDIO_OP_FREQ   8
 #define AUDIO_OP_VOLUME 9
 
+#define AUDIO_FLAG_REPEAT ((unsigned int)(1) << 0)
+
 typedef struct audio_event audio_event;
 
 struct audio_event
