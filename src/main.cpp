@@ -244,8 +244,9 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			
 			HWND fmt_list = GetDlgItem(hwnd, VIDEO_FORMAT);
 			
-			for(unsigned int i = 0; i < encoders.size(); i++) {
-				ComboBox_AddString(fmt_list, encoders[i].name.c_str());
+			for(unsigned int i = 0; video_formats[i].name; i++)
+			{
+				ComboBox_AddString(fmt_list, video_formats[i].name);
 			}
 			
 			ComboBox_SetCurSel(fmt_list, config.video_format);
@@ -277,8 +278,9 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			
 			HWND audio_fmt_list = GetDlgItem(hwnd, AUDIO_FORMAT_MENU);
 			
-			for(unsigned int i = 0; audio_encoders[i].name; i++) {
-				ComboBox_AddString(audio_fmt_list, audio_encoders[i].desc);
+			for(unsigned int i = 0; audio_formats[i].name; i++)
+			{
+				ComboBox_AddString(audio_fmt_list, audio_formats[i].name);
 			}
 			
 			ComboBox_SetCurSel(audio_fmt_list, config.audio_format);
@@ -309,9 +311,7 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 				switch(LOWORD(wp)) {
 					case IDOK: {
 						config.replay_file = get_window_string(GetDlgItem(hwnd, REPLAY_PATH));
-						config.video_file = get_window_string(GetDlgItem(hwnd, AVI_PATH));
-						config.video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
-						config.audio_format = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_FORMAT_MENU));
+						config.video_file  = get_window_string(GetDlgItem(hwnd, AVI_PATH));
 						
 						std::string rx_string = get_window_string(GetDlgItem(hwnd, RES_X));
 						std::string ry_string = get_window_string(GetDlgItem(hwnd, RES_Y));
@@ -431,28 +431,52 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						break;
 					}
 					
-					case AVI_BROWSE: {
+					case AVI_BROWSE:
+					{
+						std::string filter;
+						
+						std::vector<int> containers = get_valid_containers(config.video_format, config.audio_format);
+						
+						for(size_t i = 0; i < containers.size(); i++)
+						{
+							filter.append(container_formats[containers[i]].name);
+							filter.append(1, '\0');
+							
+							filter.append("*.");
+							filter.append(container_formats[containers[i]].ext);
+							filter.append(1, '\0');
+						}
+						
+						filter.append(1, '\0');
+						
 						char filename[512] = "";
+						
+						strncpy(filename, config.video_file.c_str(), sizeof(filename));
+						filename[sizeof(filename) - 1] = '\0';
 						
 						OPENFILENAME openfile;
 						memset(&openfile, 0, sizeof(openfile));
 						
-						openfile.lStructSize = sizeof(openfile);
-						openfile.hwndOwner = hwnd;
-						openfile.lpstrFile = filename;
-						openfile.nMaxFile = sizeof(filename);
-						openfile.lpstrInitialDir = (config.video_dir.length() ? config.video_dir.c_str() : NULL);
-						openfile.lpstrTitle = "Save video as...";
-						openfile.Flags = OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
-						openfile.lpstrDefExt = encoders[config.video_format].default_ext;
+						openfile.lStructSize     = sizeof(openfile);
+						openfile.hwndOwner       = hwnd;
+						openfile.lpstrFilter     = filter.data();
+						openfile.lpstrFile       = filename;
+						openfile.nMaxFile        = sizeof(filename);
+						openfile.lpstrInitialDir = config.video_dir.length() ? config.video_dir.c_str() : NULL;
+						openfile.lpstrTitle      = "Save video as...";
+						openfile.Flags           = OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
+						openfile.lpstrDefExt     = "";
 						
-						if(GetSaveFileName(&openfile)) {
+						if(GetSaveFileName(&openfile))
+						{
 							config.video_file = filename;
 							SetWindowText(GetDlgItem(hwnd, AVI_PATH), config.video_file.c_str());
 							
 							config.video_dir = config.video_file;
 							config.video_dir.erase(config.video_dir.find_last_of('\\'));
-						}else if(CommDlgExtendedError()) {
+						}
+						else if(CommDlgExtendedError())
+						{
 							MessageBox(hwnd, std::string("GetSaveFileName: " + to_string(CommDlgExtendedError())).c_str(), NULL, MB_OK | MB_ICONERROR);
 						}
 						
@@ -507,16 +531,23 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 				}
 				
 				return TRUE;
-			}else if(HIWORD(wp) == CBN_SELCHANGE) {
-				if(LOWORD(wp) == VIDEO_FORMAT) {
+			}else if(HIWORD(wp) == CBN_SELCHANGE)
+			{
+				if(LOWORD(wp) == VIDEO_FORMAT)
+				{
 					VIDEO_ENABLE:
 					
 					config.video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
 					
-					EnableWindow(GetDlgItem(hwnd, AVI_PATH), config.video_format != 0);
-					EnableWindow(GetDlgItem(hwnd, AVI_BROWSE), config.video_format != 0);
+					EnableWindow(GetDlgItem(hwnd, AUDIO_FORMAT_MENU), config.video_format > 0);
+					EnableWindow(GetDlgItem(hwnd, AVI_PATH), config.video_format > 0);
+					EnableWindow(GetDlgItem(hwnd, AVI_BROWSE), config.video_format > 0);
 					
 					return TRUE;
+				}
+				else if(LOWORD(wp) == AUDIO_FORMAT_MENU)
+				{
+					config.audio_format = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_FORMAT_MENU));
 				}
 			}
 		}
@@ -649,24 +680,8 @@ int main(int argc, char **argv)
 	
 	init_wav_search_path();
 	
-	std::string fmt = reg.get_string("selected_encoder", "Uncompressed AVI");
-	
-	load_encoders();
-	
-	for(unsigned int i = 0; i < encoders.size(); i++) {
-		if(fmt == encoders[i].name) {
-			config.video_format = i;
-			break;
-		}
-	}
-	
-	fmt = reg.get_string("audio_format");
-	
-	for(unsigned int i = 0; audio_encoders[i].name; i++) {
-		if(fmt == std::string(audio_encoders[i].name) || i == 0) {
-			config.audio_format = i;
-		}
-	}
+	config.video_format = std::max(get_ffmpeg_index(video_formats, reg.get_string("selected_encoder", "Uncompressed AVI")), 0);
+	config.audio_format = std::max(get_ffmpeg_index(audio_formats, reg.get_string("audio_format")), 0);
 	
 	config.width = reg.get_dword("res_x", 640);
 	config.height = reg.get_dword("res_y", 480);
@@ -692,9 +707,10 @@ int main(int argc, char **argv)
 	config.replay_dir = reg.get_string("replay_dir");
 	config.video_dir = reg.get_string("video_dir");
 	
-	while(DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_MAIN), NULL, &main_dproc)) {
-		reg.set_string("selected_encoder", encoders[config.video_format].name);
-		reg.set_string("audio_format", audio_encoders[config.audio_format].name);
+	while(DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_MAIN), NULL, &main_dproc))
+	{
+		reg.set_string("selected_encoder", video_formats[config.video_format].name);
+		reg.set_string("audio_format", audio_formats[config.audio_format].name);
 		
 		reg.set_dword("res_x", config.width);
 		reg.set_dword("res_y", config.height);

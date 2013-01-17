@@ -23,34 +23,33 @@
 
 #include "main.hpp"
 
-struct encoder_info {
-	enum type_enum {
-		none = 0,
-		ffmpeg
-	};
-	
-	std::string name;
-	type_enum type;
-	
-	double bps_pix;
-	const char *default_ext;
-	
-	const char *video_format;
-	
-	encoder_info(const std::string &n, type_enum t, double bps, const char *vf, const char *ext): name(n), type(t), bps_pix(bps), default_ext(ext), video_format(vf) {}
-};
-
-struct audio_encoder {
+struct ffmpeg_format
+{
 	const char *name;
-	const char *desc;
+	
+	const char *codec;
+	const char *extra;
 };
 
-extern std::vector<encoder_info> encoders;
-extern audio_encoder audio_encoders[];
+extern const ffmpeg_format video_formats[];
+extern const ffmpeg_format audio_formats[];
 
-void load_encoders();
+struct container_format
+{
+	const char *ext;
+	const char *name;
+	
+	const char **video_formats;
+	const char **audio_formats;
+};
 
-std::string ffmpeg_cmdline(const arec_config &config);
+extern const container_format container_formats[];
+
+int get_ffmpeg_index(const ffmpeg_format formats[], const std::string &name);
+
+std::vector<int> get_valid_containers(int video_format, int audio_format);
+
+std::string ffmpeg_cmdline();
 
 bool ffmpeg_run();
 void ffmpeg_cleanup();

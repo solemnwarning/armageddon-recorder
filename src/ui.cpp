@@ -168,7 +168,7 @@ INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 		
 		case WM_AUDIO_DONE:
 		{
-			if(encoders[config.video_format].type == encoder_info::ffmpeg)
+			if(config.video_format > 0)
 			{
 				log_push("Starting encoder...\r\n");
 				

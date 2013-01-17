@@ -23,70 +23,119 @@
 #include "ui.hpp"
 #include "audiolog.h"
 
-std::vector<encoder_info> encoders;
-
-audio_encoder audio_encoders[] = {
-	{"libvo_aacenc", "AAC"},
-	{"libvorbis", "Vorbis (libvorbis default quality)"},
-	{"libvorbis -aq 0.25", "Vorbis (Lex preset; sounds perfect w/ small file size)"},
-	{"flac", "FLAC"},
-	{"pcm_s16le", "16-bit PCM (Uncompressed)"},
-	{NULL, NULL}
+const ffmpeg_format video_formats[] = {
+	{ "None", NULL, NULL },
+	
+	{ "H.264 (Lex preset; looks perfect w/ small file size)", "libx264", "-x264opts no-scenecut:weightp=2:rc-lookahead=250:no-fast-pskip:aq-mode=2:direct=auto:trellis=2:partitions=all:b-adapt=2:bframes=16:me=tesa:subme=11:merange=48:keyint=600:min-keyint=600:crf=14:colormatrix=bt470bg:fullrange=on -preset placebo -pix_fmt yuv444p" },
+	{ "H.264 (lossless)", "libx264rgb", "-pix_fmt bgr24 -qp 0" },
+	{ "ZMBV (lossless, 256 colours)", "zmbv", NULL },
+	{ "Raw video (Uncompressed)", "rawvideo", "-pix_fmt bgr24" },
+	{ NULL }
 };
 
-std::string fcc_to_string(DWORD fcc) {
-	char buf[8];
-	memcpy(buf, &fcc, 4);
-	buf[5] = '\0';
-	
-	return buf;
-}
+const ffmpeg_format audio_formats[] = {
+	{ "AAC", "libvo_aacenc", NULL },
+	{ "Vorbis (libvorbis default quality)", "libvorbis", NULL },
+	{ "Vorbis (Lex preset; sounds perfect w/ small file size)", "libvorbis", "-aq 0.25" },
+	{ "FLAC", "flac", NULL },
+	{ "16-bit PCM (Uncompressed)", "pcm_s16le", NULL },
+	{ NULL }
+};
 
-std::string wide_to_string(const WCHAR *wide) {
-	std::string buf;
+const container_format container_formats[] = {
+	{
+		"mkv",
+		"Matroska Multimedia Container",
+		
+		(const char*[]){ "libx264", "libx264rgb", "zmbv", "rawvideo", NULL },
+		(const char*[]){ "libvo_aacenc", "libvorbis", "flac", "pcm_s16le", NULL }
+	},
 	
-	for(unsigned int i = 0; wide[i]; i++) {
-		buf.push_back(wide[i]);
+	{
+		"avi",
+		"AVI",
+		
+		(const char*[]){ "rawvideo",  NULL },
+		(const char*[]){ "pcm_s16le", NULL }
+	},
+	
+	{ NULL }
+};
+
+/* Get the index of a named format within an ffmpeg_format array.
+ * Returns -1 if the named format was not found.
+*/
+int get_ffmpeg_index(const ffmpeg_format formats[], const std::string &name)
+{
+	for(int i = 0; formats[i].name; i++)
+	{
+		if(name == formats[i].name)
+		{
+			return i;
+		}
 	}
 	
-	return buf;
+	return -1;
 }
 
-#define ADD_ENCODER(...) encoders.push_back(encoder_info(__VA_ARGS__))
-
-void load_encoders() {
-	ADD_ENCODER("Don't create video", encoder_info::none, 0, NULL, NULL); // frames
+static bool test_codec(const char *codecs[], const char *codec)
+{
+	for(int i = 0; codecs[i]; i++)
+	{
+		if(strcmp(codecs[i], codec) == 0)
+		{
+			return true;
+		}
+	}
 	
-	ADD_ENCODER("H.264 (low quality)", encoder_info::ffmpeg, 0.325, "libx264 -pix_fmt yuvj420p", "mkv");
-	ADD_ENCODER("H.264 (medium quality)", encoder_info::ffmpeg, 0.98, "libx264 -pix_fmt yuvj420p", "mkv");
-	ADD_ENCODER("H.264 (high quality)", encoder_info::ffmpeg, 3.6, "libx264 -pix_fmt yuvj444p", "mkv");
-	
-	ADD_ENCODER("H.264 (Lex preset; looks perfect w/ small file size)", encoder_info::ffmpeg, 0, "libx264 -x264opts no-scenecut:weightp=2:rc-lookahead=250:no-fast-pskip:aq-mode=2:direct=auto:trellis=2:partitions=all:b-adapt=2:bframes=16:me=tesa:subme=11:merange=48:keyint=600:min-keyint=600:crf=14:colormatrix=bt470bg:fullrange=on -preset placebo -pix_fmt yuv444p", "mkv");
-	
-	ADD_ENCODER("H.264 (lossless)", encoder_info::ffmpeg, 0, "libx264rgb -pix_fmt bgr24 -qp 0", "mkv");
-	
-	ADD_ENCODER("ZMBV (lossless, 256 colours)", encoder_info::ffmpeg, 0, "zmbv", "mkv");
-	
-	ADD_ENCODER("Uncompressed (raw) video", encoder_info::ffmpeg, 0, "rawvideo -pix_fmt bgr24", "avi");
+	return false;
 }
 
-std::string ffmpeg_cmdline(const arec_config &config) {
+std::vector<int> get_valid_containers(int video_format, int audio_format)
+{
+	std::vector<int> ret;
+	
+	const char *video_codec = video_formats[video_format].codec;
+	const char *audio_codec = audio_formats[audio_format].codec;
+	
+	for(int i = 0; container_formats[i].ext; i++)
+	{
+		const char **vc_ok = container_formats[i].video_formats;
+		const char **ac_ok = container_formats[i].audio_formats;
+		
+		if(test_codec(vc_ok, video_codec) && test_codec(ac_ok, audio_codec))
+		{
+			ret.push_back(i);
+		}
+	}
+	
+	return ret;
+}
+
+static void append_codec(std::string &cmdline, const char *ct, const ffmpeg_format &format)
+{
+	cmdline.append(ct);
+	cmdline.append(format.codec);
+	
+	if(format.extra)
+	{
+		cmdline.append(" ");
+		cmdline.append(video_formats[config.video_format].extra);
+	}
+}
+
+std::string ffmpeg_cmdline()
+{
 	std::string frames_in = escape_filename(config.capture_dir + "\\" + FRAME_PREFIX + "%06d.png");
-	std::string audio_in = escape_filename(config.capture_dir + "\\" + FRAME_PREFIX + "audio.wav");
+	std::string audio_in  = escape_filename(config.capture_dir + "\\" + FRAME_PREFIX + "audio.wav");
 	std::string video_out = escape_filename(config.video_file);
 	
 	std::string cmdline = "ffmpeg.exe -threads " + to_string(config.max_enc_threads) + " -y -r " + to_string(config.frame_rate) + " -i \"" + frames_in + "\"";
 	
 	cmdline.append(std::string(" -i \"") + audio_in + "\"");
 	
-	cmdline.append(std::string(" -vcodec ") + encoders[config.video_format].video_format + " -acodec " + audio_encoders[config.audio_format].name);
-	
-	if(encoders[config.video_format].bps_pix) {
-		unsigned int bps = config.width * config.height;
-		bps *= encoders[config.video_format].bps_pix;
-		
-		cmdline.append(std::string(" -b:v ") + to_string(bps));
-	}
+	append_codec(cmdline, " -vcodec ", video_formats[config.video_format]);
+	append_codec(cmdline, " -acodec ", audio_formats[config.audio_format]);
 	
 	cmdline.append(std::string(" \"") + video_out + "\"");
 	
@@ -118,7 +167,7 @@ bool ffmpeg_run()
 {
 	ffmpeg_cleanup();
 	
-	std::string cmdline = ffmpeg_cmdline(config);
+	std::string cmdline = ffmpeg_cmdline();
 	
 	ffmpeg_cmdline_buf = new char[cmdline.length() + 1];
 	strcpy(ffmpeg_cmdline_buf, cmdline.c_str());
