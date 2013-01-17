@@ -18,6 +18,9 @@
 #ifndef AREC_UI_HPP
 #define AREC_UI_HPP
 
+#include <exception>
+#include <limits.h>
+
 #define WM_WAEXIT     (WM_USER + 1)
 #define WM_PUSHLOG    (WM_USER + 2)
 #define WM_BEGIN      (WM_USER + 3)
@@ -27,12 +30,22 @@
 
 extern HWND progress_dialog;
 
+class bad_input: public std::exception {};
+
 std::string get_window_string(HWND hwnd);
-size_t get_window_uint(HWND window);
+int get_window_int(HWND window, int min = INT_MIN, int max = INT_MAX);
 double get_window_double(HWND window);
 
 bool checkbox_get(HWND hwnd);
 void checkbox_set(HWND hwnd, bool checked);
+
+void menu_item_enable(HMENU menu, UINT item, bool enable);
+bool menu_item_get(HMENU menu, UINT item);
+void menu_item_set(HMENU menu, UINT item, bool state);
+bool menu_item_toggle(HMENU menu, UINT item);
+
+void volume_init(HWND slider, HWND edit, int value);
+void volume_on_slider(HWND slider, HWND edit);
 
 INT_PTR CALLBACK prog_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 

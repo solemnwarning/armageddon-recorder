@@ -17,6 +17,7 @@
 
 #include <windows.h>
 #include <windowsx.h>
+#include <commctrl.h>
 #include <assert.h>
 
 #include "main.hpp"
@@ -49,14 +50,22 @@ std::string get_window_string(HWND hwnd)
 	}
 }
 
-size_t get_window_uint(HWND window) {
+/* Read an integer value from a window.
+ * Throws bad_input if the window contains an invalid or out-of-range integer.
+*/
+int get_window_int(HWND window, int min, int max)
+{
 	std::string s = get_window_string(window);
 	
-	if(s.empty() || strspn(s.c_str(), "1234567890") != s.length()) {
-		return -1;
+	char *endptr;
+	int value = strtol(s.c_str(), &endptr, 10);
+	
+	if(s.empty() || endptr[0] != '\0' || value < min || value > max)
+	{
+		throw bad_input();
 	}
 	
-	return strtoul(s.c_str(), NULL, 10);
+	return value;
 }
 
 double get_window_double(HWND window) {
@@ -77,6 +86,101 @@ bool checkbox_get(HWND hwnd)
 void checkbox_set(HWND hwnd, bool checked)
 {
 	Button_SetCheck(hwnd, checked ? BST_CHECKED : BST_UNCHECKED);
+}
+
+/* Set the enabled state of a menu item. */
+void menu_item_enable(HMENU menu, UINT item, bool enable)
+{
+	MENUITEMINFO info;
+	
+	info.cbSize = sizeof(info);
+	info.fMask  = MIIM_STATE;
+	
+	GetMenuItemInfo(menu, item, FALSE, &info);
+	
+	if(enable)
+	{
+		info.fState &= ~MFS_DISABLED;
+	}
+	else{
+		info.fState |= MFS_DISABLED;
+	}
+	
+	SetMenuItemInfo(menu, item, FALSE, &info);
+}
+
+/* Returns the checked state of a menu item. */
+bool menu_item_get(HMENU menu, UINT item)
+{
+	MENUITEMINFO info;
+	
+	info.cbSize = sizeof(info);
+	info.fMask  = MIIM_STATE;
+	
+	GetMenuItemInfo(menu, item, FALSE, &info);
+	
+	return !!(info.fState & MFS_CHECKED);
+}
+
+/* Set the checked state of a menu item. */
+void menu_item_set(HMENU menu, UINT item, bool state)
+{
+	MENUITEMINFO info;
+	
+	info.cbSize = sizeof(info);
+	info.fMask  = MIIM_STATE;
+	
+	GetMenuItemInfo(menu, item, FALSE, &info);
+	
+	if(state)
+	{
+		info.fState |= MFS_CHECKED;
+	}
+	else{
+		info.fState &= ~MFS_CHECKED;
+	}
+	
+	SetMenuItemInfo(menu, item, FALSE, &info);
+}
+
+/* Invert the checked state of a menu item and return the new state. */
+bool menu_item_toggle(HMENU menu, UINT item)
+{
+	MENUITEMINFO info;
+	
+	info.cbSize = sizeof(info);
+	info.fMask  = MIIM_STATE;
+	
+	GetMenuItemInfo(menu, item, FALSE, &info);
+	
+	info.fState ^= MFS_CHECKED;
+	
+	SetMenuItemInfo(menu, item, FALSE, &info);
+	
+	return !!(info.fState & MFS_CHECKED);
+}
+
+/* Initialise a volume control pair.
+ * Value should be 0 to 100.
+*/
+void volume_init(HWND slider, HWND edit, int value)
+{
+	SendMessage(slider, TBM_SETRANGE, (WPARAM)(FALSE), MAKELPARAM(0, 100));
+	SendMessage(slider, TBM_SETTICFREQ, (WPARAM)(5), (LPARAM)(0));
+	
+	SendMessage(slider, TBM_SETPOS, (WPARAM)(TRUE), (LPARAM)(value));
+	
+	volume_on_slider(slider, edit);
+}
+
+/* Update the edit part of a volume control pair.
+ * Call whenever the slider changes.
+*/
+void volume_on_slider(HWND slider, HWND edit)
+{
+	int pos = SendMessage(slider, TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
+	
+	SetWindowText(edit, std::string(to_string(pos) + "%").c_str());
 }
 
 static DWORD WINAPI audio_gen_thread(LPVOID lpParameter)

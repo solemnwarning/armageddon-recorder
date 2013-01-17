@@ -123,14 +123,6 @@ bool validate_time(const std::string &time) {
 	return true;
 }
 
-bool validate_res(const std::string &value) {
-	return (!value.empty() && value.find_first_not_of("1234567890") == std::string::npos);
-}
-
-bool validate_fps(const std::string &value) {
-	return (validate_res(value) && atoi(value.c_str()) >= 1 && atoi(value.c_str()) <= 50);
-}
-
 /* TODO: Default path */
 std::string choose_dir(HWND parent, const std::string &title, const std::string &test_file) {
 	if(!com_init) {
@@ -199,26 +191,6 @@ void check_wormkit() {
 	);
 }
 
-static void volume_init(HWND slider, HWND edit, int value);
-static void volume_set_edit(HWND slider, HWND edit);
-
-static void volume_init(HWND slider, HWND edit, int value)
-{
-	SendMessage(slider, TBM_SETRANGE, (WPARAM)(FALSE), MAKELPARAM(0, 100));
-	SendMessage(slider, TBM_SETTICFREQ, (WPARAM)(5), (LPARAM)(0));
-	
-	SendMessage(slider, TBM_SETPOS, (WPARAM)(TRUE), (LPARAM)(value));
-	
-	volume_set_edit(slider, edit);
-}
-
-static void volume_set_edit(HWND slider, HWND edit)
-{
-	int pos = SendMessage(slider, TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
-	
-	SetWindowText(edit, std::string(to_string(pos) + "%").c_str());
-}
-
 static void toggle_clipping(HWND hwnd)
 {
 	bool enabled = checkbox_get(GetDlgItem(hwnd, FIX_CLIPPING));
@@ -230,27 +202,30 @@ static void toggle_clipping(HWND hwnd)
 	EnableWindow(GetDlgItem(hwnd, MIN_VOL_EDIT), enabled);
 }
 
-INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-	switch(msg) {
-		case WM_INITDIALOG: {
+INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+	switch(msg)
+	{
+		case WM_INITDIALOG:
+		{
+			/* Set the window icon... */
+			
 			SendMessage(hwnd, WM_SETICON, 0, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON16)));
 			SendMessage(hwnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON32)));
 			
-			EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_exe ? MF_ENABLED : MF_GRAYED);
-			CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
+			/* Initialise menu items... */
+			
+			menu_item_enable(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_exe);
+			menu_item_set(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_exe && config.load_wormkit_dlls);
+			
+			menu_item_set(GetMenu(hwnd), WA_LOCK_CAMERA, config.wa_lock_camera);
+			menu_item_set(GetMenu(hwnd), WA_BIGGER_FONT, config.wa_bigger_fonts);
+			menu_item_set(GetMenu(hwnd), WA_TRANSPARENT_LABELS, config.wa_transparent_labels);
+			
+			/* Capture settings... */
 			
 			SetWindowText(GetDlgItem(hwnd, RES_X), to_string(config.width).c_str());
 			SetWindowText(GetDlgItem(hwnd, RES_Y), to_string(config.height).c_str());
-			
-			HWND fmt_list = GetDlgItem(hwnd, VIDEO_FORMAT);
-			
-			for(unsigned int i = 0; video_formats[i].name; i++)
-			{
-				ComboBox_AddString(fmt_list, video_formats[i].name);
-			}
-			
-			ComboBox_SetCurSel(fmt_list, config.video_format);
-			set_combo_height(fmt_list);
 			
 			SetWindowText(GetDlgItem(hwnd, FRAMES_SEC), to_string(config.frame_rate).c_str());
 			
@@ -272,9 +247,29 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			ComboBox_SetCurSel(chat_list, config.wa_chat_behaviour);
 			set_combo_height(chat_list);
 			
-			CheckMenuItem(GetMenu(hwnd), WA_LOCK_CAMERA, config.wa_lock_camera ? MF_CHECKED : MF_UNCHECKED);
-			CheckMenuItem(GetMenu(hwnd), WA_BIGGER_FONT, config.wa_bigger_fonts ? MF_CHECKED : MF_UNCHECKED);
-			CheckMenuItem(GetMenu(hwnd), WA_TRANSPARENT_LABELS, config.wa_transparent_labels ? MF_CHECKED : MF_UNCHECKED);
+			Button_SetCheck(GetDlgItem(hwnd, DO_CLEANUP), (config.do_cleanup ? BST_CHECKED : BST_UNCHECKED));
+			
+			/* Audio settings... */
+			
+			volume_init(GetDlgItem(hwnd, INIT_VOL_SLIDER), GetDlgItem(hwnd, INIT_VOL_EDIT), config.init_vol);
+			
+			checkbox_set(GetDlgItem(hwnd, FIX_CLIPPING), true);
+			toggle_clipping(hwnd);
+			
+			volume_init(GetDlgItem(hwnd, STEP_VOL_SLIDER), GetDlgItem(hwnd, STEP_VOL_EDIT), config.step_vol);
+			volume_init(GetDlgItem(hwnd, MIN_VOL_SLIDER), GetDlgItem(hwnd, MIN_VOL_EDIT), config.min_vol);
+			
+			/* Video settings... */
+			
+			HWND fmt_list = GetDlgItem(hwnd, VIDEO_FORMAT);
+			
+			for(unsigned int i = 0; video_formats[i].name; i++)
+			{
+				ComboBox_AddString(fmt_list, video_formats[i].name);
+			}
+			
+			ComboBox_SetCurSel(fmt_list, config.video_format);
+			set_combo_height(fmt_list);
 			
 			HWND audio_fmt_list = GetDlgItem(hwnd, AUDIO_FORMAT_MENU);
 			
@@ -286,62 +281,57 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			ComboBox_SetCurSel(audio_fmt_list, config.audio_format);
 			set_combo_height(audio_fmt_list);
 			
-			Button_SetCheck(GetDlgItem(hwnd, DO_CLEANUP), (config.do_cleanup ? BST_CHECKED : BST_UNCHECKED));
-			
-			volume_init(GetDlgItem(hwnd, INIT_VOL_SLIDER), GetDlgItem(hwnd, INIT_VOL_EDIT), config.init_vol);
-			
-			checkbox_set(GetDlgItem(hwnd, FIX_CLIPPING), true);
-			toggle_clipping(hwnd);
-			
-			volume_init(GetDlgItem(hwnd, STEP_VOL_SLIDER), GetDlgItem(hwnd, STEP_VOL_EDIT), config.step_vol);
-			volume_init(GetDlgItem(hwnd, MIN_VOL_SLIDER), GetDlgItem(hwnd, MIN_VOL_EDIT), config.min_vol);
-			
 			goto VIDEO_ENABLE;
-			
-			return TRUE;
 		}
 		
-		case WM_CLOSE: {
+		case WM_CLOSE:
+		{
 			EndDialog(hwnd, 0);
 			return TRUE;
 		}
 		
-		case WM_COMMAND: {
-			if(HIWORD(wp) == BN_CLICKED) {
-				switch(LOWORD(wp)) {
-					case IDOK: {
+		case WM_COMMAND:
+		{
+			if(HIWORD(wp) == BN_CLICKED)
+			{
+				switch(LOWORD(wp))
+				{
+					case IDOK:
+					{
+						/* Capture settings... */
+						
 						config.replay_file = get_window_string(GetDlgItem(hwnd, REPLAY_PATH));
-						config.video_file  = get_window_string(GetDlgItem(hwnd, AVI_PATH));
 						
-						std::string rx_string = get_window_string(GetDlgItem(hwnd, RES_X));
-						std::string ry_string = get_window_string(GetDlgItem(hwnd, RES_Y));
-						
-						if(!validate_res(rx_string) || !validate_res(ry_string)) {
+						try {
+							config.width  = get_window_int(GetDlgItem(hwnd, RES_X), 0);
+							config.height = get_window_int(GetDlgItem(hwnd, RES_Y), 0);
+						}
+						catch(const bad_input &e)
+						{
 							MessageBox(hwnd, "Invalid resolution", NULL, MB_OK | MB_ICONERROR);
 							break;
 						}
 						
-						config.width = strtoul(rx_string.c_str(), NULL, 10);
-						config.height = strtoul(ry_string.c_str(), NULL, 10);
-						
-						std::string fps_text = get_window_string(GetDlgItem(hwnd, FRAMES_SEC));
-						
-						if(!validate_fps(fps_text)) {
+						try {
+							config.frame_rate = get_window_int(GetDlgItem(hwnd, FRAMES_SEC), 1, 50);
+						}
+						catch(const bad_input &e)
+						{
 							MessageBox(hwnd, "Frame rate must be an integer in the range 1-50", NULL, MB_OK | MB_ICONERROR);
 							break;
 						}
 						
-						config.frame_rate = atoi(fps_text.c_str());
-						
 						config.start_time = get_window_string(GetDlgItem(hwnd, TIME_START));
-						config.end_time = get_window_string(GetDlgItem(hwnd, TIME_END));
+						config.end_time   = get_window_string(GetDlgItem(hwnd, TIME_END));
 						
-						if(!validate_time(config.start_time)) {
+						if(!validate_time(config.start_time))
+						{
 							MessageBox(hwnd, "Invalid start time", NULL, MB_OK | MB_ICONERROR);
 							break;
 						}
 						
-						if(!validate_time(config.end_time)) {
+						if(!validate_time(config.end_time))
+						{
 							MessageBox(hwnd, "Invalid end time", NULL, MB_OK | MB_ICONERROR);
 							break;
 						}
@@ -351,7 +341,7 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						
 						config.do_cleanup = Button_GetCheck(GetDlgItem(hwnd, DO_CLEANUP));
 						
-						/* Audio settings */
+						/* Audio settings... */
 						
 						config.init_vol = SendMessage(GetDlgItem(hwnd, INIT_VOL_SLIDER), TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
 						
@@ -360,16 +350,20 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						config.step_vol = SendMessage(GetDlgItem(hwnd, STEP_VOL_SLIDER), TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
 						config.min_vol  = SendMessage(GetDlgItem(hwnd, MIN_VOL_SLIDER), TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
 						
-						if(config.video_format == 0 && config.do_cleanup) {
+						/* Video settings... */
+						
+						config.video_file = get_window_string(GetDlgItem(hwnd, AVI_PATH));
+						
+						if(config.video_format == 0 && config.do_cleanup)
+						{
 							MessageBox(hwnd, "You've chosen to not create a video file and delete frames/audio when finished. You probably don't want this.", NULL, MB_OK | MB_ICONWARNING);
 							break;
 						}
 						
-						if(config.video_format) {
-							if(config.video_file.empty()) {
-								MessageBox(hwnd, "Output video filename is required", NULL, MB_OK | MB_ICONERROR);
-								break;
-							}
+						if(config.video_format > 0 && config.video_file.empty())
+						{
+							MessageBox(hwnd, "Output video filename is required", NULL, MB_OK | MB_ICONERROR);
+							break;
 						}
 						
 						/* Fill in convenience variables */
@@ -377,13 +371,19 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						config.replay_name = config.replay_file;
 						
 						size_t last_slash = config.replay_name.find_last_of('\\');
-						if(last_slash != std::string::npos) {
+						if(last_slash != std::string::npos)
+						{
 							config.replay_name.erase(0, last_slash + 1);
 						}
 						
-						size_t last_dot = config.replay_name.find_last_of('.');
-						if(last_dot != std::string::npos) {
-							config.replay_name.erase(last_dot);
+						if(config.replay_name.find_last_of('\\') != std::string::npos)
+						{
+							config.replay_name.erase(0, config.replay_name.find_last_of('\\') + 1);
+						}
+						
+						if(config.replay_name.find_last_of('.') != std::string::npos)
+						{
+							config.replay_name.erase(config.replay_name.find_last_of('.'));
 						}
 						
 						config.capture_dir = wa_path + "\\User\\Capture\\" + config.replay_name;
@@ -392,12 +392,14 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						break;
 					}
 					
-					case IDCANCEL: {
+					case IDCANCEL:
+					{
 						EndDialog(hwnd, 0);
 						break;
 					}
 					
-					case REPLAY_BROWSE: {
+					case REPLAY_BROWSE:
+					{
 						char filename[512] = "";
 						
 						OPENFILENAME openfile;
@@ -412,13 +414,16 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						openfile.lpstrTitle = "Select replay";
 						openfile.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 						
-						if(GetOpenFileName(&openfile)) {
+						if(GetOpenFileName(&openfile))
+						{
 							config.replay_file = filename;
 							SetWindowText(GetDlgItem(hwnd, REPLAY_PATH), config.replay_file.c_str());
 							
 							config.replay_dir = config.replay_file;
 							config.replay_dir.erase(config.replay_dir.find_last_of('\\'));
-						}else if(CommDlgExtendedError()) {
+						}
+						else if(CommDlgExtendedError())
+						{
 							MessageBox(hwnd, std::string("GetOpenFileName: " + to_string(CommDlgExtendedError())).c_str(), NULL, MB_OK | MB_ICONERROR);
 						}
 						
@@ -483,7 +488,8 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						break;
 					}
 					
-					case SELECT_WA_DIR: {
+					case SELECT_WA_DIR:
+					{
 						std::string dir = choose_dir(hwnd, "Select Worms Armageddon directory:", "wa.exe");
 						if(!dir.empty())
 						{
@@ -500,44 +506,46 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 						break;
 					}
 					
-					case LOAD_WORMKIT_DLLS: {
-						config.load_wormkit_dlls = !config.load_wormkit_dlls;
-						CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, config.load_wormkit_dlls ? MF_CHECKED : MF_UNCHECKED);
+					case LOAD_WORMKIT_DLLS:
+					{
+						config.load_wormkit_dlls = menu_item_toggle(GetMenu(hwnd), LOAD_WORMKIT_DLLS);
 						break;
 					}
 					
-					case ADV_OPTIONS: {
+					case ADV_OPTIONS:
+					{
 						DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_OPTIONS), hwnd, &options_dproc);
 						break;
 					}
 					
-					case WA_LOCK_CAMERA: {
-						config.wa_lock_camera = !config.wa_lock_camera;
-						CheckMenuItem(GetMenu(hwnd), WA_LOCK_CAMERA, config.wa_lock_camera ? MF_CHECKED : MF_UNCHECKED);
+					case WA_LOCK_CAMERA:
+					{
+						config.wa_lock_camera = menu_item_toggle(GetMenu(hwnd), WA_LOCK_CAMERA);
 						break;
 					}
 					
-					case WA_BIGGER_FONT: {
-						config.wa_bigger_fonts = !config.wa_bigger_fonts;
-						CheckMenuItem(GetMenu(hwnd), WA_BIGGER_FONT, config.wa_bigger_fonts ? MF_CHECKED : MF_UNCHECKED);
+					case WA_BIGGER_FONT:
+					{
+						config.wa_bigger_fonts = menu_item_toggle(GetMenu(hwnd), WA_BIGGER_FONT);
 						break;
 					}
 					
-					case WA_TRANSPARENT_LABELS: {
-						config.wa_transparent_labels = !config.wa_transparent_labels;
-						CheckMenuItem(GetMenu(hwnd), WA_TRANSPARENT_LABELS, config.wa_transparent_labels ? MF_CHECKED : MF_UNCHECKED);
+					case WA_TRANSPARENT_LABELS:
+					{
+						config.wa_transparent_labels = menu_item_toggle(GetMenu(hwnd), WA_TRANSPARENT_LABELS);
 						break;
 					}
 				}
 				
 				return TRUE;
-			}else if(HIWORD(wp) == CBN_SELCHANGE)
+			}
+			else if(HIWORD(wp) == CBN_SELCHANGE)
 			{
 				if(LOWORD(wp) == VIDEO_FORMAT)
 				{
-					VIDEO_ENABLE:
-					
 					config.video_format = ComboBox_GetCurSel(GetDlgItem(hwnd, VIDEO_FORMAT));
+					
+					VIDEO_ENABLE:
 					
 					EnableWindow(GetDlgItem(hwnd, AUDIO_FORMAT_MENU), config.video_format > 0);
 					EnableWindow(GetDlgItem(hwnd, AVI_PATH), config.video_format > 0);
@@ -565,19 +573,19 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			{
 				case INIT_VOL_SLIDER:
 				{
-					volume_set_edit((HWND)(lp), GetDlgItem(hwnd, INIT_VOL_EDIT));
+					volume_on_slider((HWND)(lp), GetDlgItem(hwnd, INIT_VOL_EDIT));
 					break;
 				}
 				
 				case STEP_VOL_SLIDER:
 				{
-					volume_set_edit((HWND)(lp), GetDlgItem(hwnd, STEP_VOL_EDIT));
+					volume_on_slider((HWND)(lp), GetDlgItem(hwnd, STEP_VOL_EDIT));
 					break;
 				}
 				
 				case MIN_VOL_SLIDER:
 				{
-					volume_set_edit((HWND)(lp), GetDlgItem(hwnd, MIN_VOL_EDIT));
+					volume_on_slider((HWND)(lp), GetDlgItem(hwnd, MIN_VOL_EDIT));
 					break;
 				}
 			}
@@ -602,31 +610,35 @@ std::string escape_filename(std::string name) {
 	return name;
 }
 
-#define UINT_IN(opt_var, window_id, opt_name) \
-	if((tmp.opt_var = get_window_uint(GetDlgItem(hwnd, window_id))) == -1) { \
-		MessageBox(hwnd, opt_name " must be an integer", NULL, MB_OK | MB_ICONERROR); \
-		break; \
-	}
-
-INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-	switch(msg) {
-		case WM_INITDIALOG: {
+INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+	switch(msg)
+	{
+		case WM_INITDIALOG:
+		{
 			SetWindowText(GetDlgItem(hwnd, MAX_ENC_THREADS), to_string(config.max_enc_threads).c_str());
-			
 			return TRUE;
 		}
 		
-		case WM_COMMAND: {
-			if(HIWORD(wp) == BN_CLICKED) {
-				if(LOWORD(wp) == IDOK) {
-					arec_config tmp = config;
-					
-					UINT_IN(max_enc_threads, MAX_ENC_THREADS, "Max threads");
-					
-					config = tmp;
+		case WM_COMMAND:
+		{
+			if(HIWORD(wp) == BN_CLICKED)
+			{
+				if(LOWORD(wp) == IDOK)
+				{
+					try {
+						config.max_enc_threads = get_window_int(GetDlgItem(hwnd, MAX_ENC_THREADS), 0);
+					}
+					catch(const bad_input &e)
+					{
+						MessageBox(hwnd, "Max threads must be an integer", NULL, MB_OK | MB_ICONERROR);
+						break;
+					}
 					
 					EndDialog(hwnd, 1);
-				}else if(LOWORD(wp) == IDCANCEL) {
+				}
+				else if(LOWORD(wp) == IDCANCEL)
+				{
 					PostMessage(hwnd, WM_CLOSE, 0, 0);
 				}
 			}
@@ -634,12 +646,14 @@ INT_PTR CALLBACK options_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 			return TRUE;
 		}
 		
-		case WM_CLOSE: {
+		case WM_CLOSE:
+		{
 			EndDialog(hwnd, 0);
 			return TRUE;
 		}
 		
-		default: {
+		default:
+		{
 			break;
 		}
 	}
