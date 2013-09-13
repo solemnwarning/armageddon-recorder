@@ -23,7 +23,7 @@
 #include <vector>
 #include <map>
 #include <stdint.h>
-#include <gorilla/ga.h>
+#include <sndfile.h>
 
 #include "main.hpp"
 
@@ -32,26 +32,12 @@
 #define SAMPLE_BITS 16
 #define CHANNELS    2
 
-struct wav_file
-{
-	std::string path;
-	
-	ga_Sound *sound;
-	
-	wav_file(const std::string &_path);
-	wav_file(const wav_file &src);
-	
-	~wav_file();
-};
-
-extern std::map<uint32_t, wav_file> wav_files;
-
-void init_wav_search_path();
-
-uint32_t get_wav_file_hash(const char *path);
-wav_file *wav_search(uint32_t hash, std::string path);
-wav_file *get_wav_file(uint32_t hash);
-
 bool make_output_wav();
+
+extern "C"
+{
+	unsigned int pcm_resample_bufsize(unsigned int frames, int channels, int rate_in, int rate_out, int bits_out);
+	void pcm_resample(const void *pcm_in, const void *pcm_out, unsigned int frames, int channels, int rate_in, int rate_out, int bits_in, int bits_out);
+}
 
 #endif /* !AREC_AUDIO_HPP */

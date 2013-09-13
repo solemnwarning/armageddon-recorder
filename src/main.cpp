@@ -499,8 +499,6 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 							
 							EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_exe ? MF_ENABLED : MF_GRAYED);
 							CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
-							
-							init_wav_search_path();
 						}
 						
 						break;
@@ -665,8 +663,6 @@ int main(int argc, char **argv)
 {
 	SetErrorMode(SEM_FAILCRITICALERRORS);
 	
-	gc_initialize(NULL);
-	
 	InitCommonControls();
 	
 	reg_handle reg(HKEY_CURRENT_USER, "Software\\Armageddon Recorder", KEY_QUERY_VALUE | KEY_SET_VALUE, true);
@@ -691,8 +687,6 @@ int main(int argc, char **argv)
 	
 	config.load_wormkit_dlls = reg.get_dword("load_wormkit_dlls", false);
 	check_wormkit();
-	
-	init_wav_search_path();
 	
 	config.video_format = std::max(get_ffmpeg_index(video_formats, reg.get_string("selected_encoder", "Uncompressed AVI")), 0);
 	config.audio_format = std::max(get_ffmpeg_index(audio_formats, reg.get_string("audio_format")), 0);
@@ -761,14 +755,6 @@ int main(int argc, char **argv)
 	if(com_init) {
 		CoUninitialize();
 	}
-	
-	/* Unload any wav files before gc_shutdown as they each have a gc_Sound
-	 * reference.
-	*/
-	
-	wav_files.clear();
-	
-	gc_shutdown();
 	
 	return 0;
 }

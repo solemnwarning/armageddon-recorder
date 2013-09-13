@@ -18,6 +18,9 @@
 #ifndef AREC_CAPTURE_HPP
 #define AREC_CAPTURE_HPP
 
+/* Prefix for exported frames and audio. */
+#define FRAME_PREFIX "arec_"
+
 unsigned int get_frame_count();
 
 bool start_capture();

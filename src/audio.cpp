@@ -21,244 +21,154 @@
 #include <string>
 #include <stdio.h>
 #include <assert.h>
-#include <gorilla/ga.h>
-#include <gorilla/gau.h>
 #include <sndfile.h>
-#include <MurmurHash3.h>
+#include <tr1/memory>
+#include <map>
 
 #include "audio.hpp"
-#include "audiolog.h"
+#include "ds-capture.h"
 #include "ui.hpp"
+#include "capture.hpp"
 
-std::map<uint32_t, wav_file> wav_files;
-
-wav_file::wav_file(const std::string &_path)
+struct audio_buffer
 {
-	path = _path;
+	unsigned char *buf;
+	size_t size;
 	
-	assert((sound = gau_load_sound_file(path.c_str(), "wav")));
-}
-
-wav_file::wav_file(const wav_file &src)
-{
-	path  = src.path;
-	sound = src.sound;
+	unsigned int sample_rate;
+	unsigned int sample_bits;
+	unsigned int channels;
 	
-	ga_sound_acquire(sound);
-}
-
-wav_file::~wav_file()
-{
-	ga_sound_release(sound);
-}
-
-static std::vector<std::string> wav_search_path;
-
-/* Initialise the wav search path using the WA installation directory and CD-ROM
- * if present.
-*/
-void init_wav_search_path()
-{
-	wav_search_path.clear();
+	bool playing;
+	bool looping;
+	size_t position;
+	double gain;
 	
-	wav_search_path.push_back(wa_path + "\\DATA\\Wav\\Effects");
-	wav_search_path.push_back(wa_path + "\\FESfx");
-	wav_search_path.push_back(wa_path + "\\User\\Speech");
-	
-	char drive_root[] = "A:\\";
-	
-	FIND_CD:
-	
-	while(drive_root[0] <= 'Z')
+	audio_buffer(size_t new_size, unsigned int new_rate, unsigned int new_bits, unsigned int new_channels, double new_gain)
 	{
-		UINT type = GetDriveType(drive_root);
+		buf  = new unsigned char[new_size];
+		size = new_size;
 		
-		char label[256];
-		BOOL label_ok = GetVolumeInformation(drive_root, label, sizeof(label), NULL, NULL, NULL, NULL, 0);
-		
-		if(type == DRIVE_CDROM && label_ok && strcasecmp(label, "WA") == 0)
+		if(new_bits == 8)
 		{
-			wav_search_path.push_back(std::string(drive_root) + "Data\\Streams");
-			wav_search_path.push_back(std::string(drive_root) + "Data\\User\\Fanfare");
-			wav_search_path.push_back(std::string(drive_root) + "Data\\User\\Speech");
-			
-			break;
+			memset(buf, 128, size);
+		}
+		else{
+			memset(buf, 0, size);
 		}
 		
-		drive_root[0]++;
-	}
-	
-	if(drive_root[0] > 'Z')
-	{
-		if(MessageBox(NULL, "Could not find a WA CD-ROM. Some audio may be unavailable.\r\nTry again?", "Warning", MB_YESNO | MB_ICONWARNING | MB_TASKMODAL) == IDYES)
-		{
-			drive_root[0] = 'A';
-			goto FIND_CD;
-		}
-	}
-}
-
-/* Hash a wav file for identification.
- * 
- * Only the first AUDIO_HASH_MAX_DATA bytes of the data section are hashed.
-*/
-uint32_t get_wav_file_hash(const char *path)
-{
-	SF_INFO info;
-	memset(&info, 0, sizeof(info));
-	
-	SNDFILE *wav = sf_open(path, SFM_READ, &info);
-	if(!wav)
-	{
-		return 0;
-	}
-	
-	char buf[AUDIO_HASH_MAX_DATA];
-	sf_count_t size = sf_read_raw(wav, buf, AUDIO_HASH_MAX_DATA);
-	
-	sf_close(wav);
-	
-	uint32_t hash;
-	MurmurHash3_x86_32(buf, size, 0, &hash);
-	
-	return hash;
-}
-
-/* Recursively search a directory for a wav file with the given hash.
- * 
- * Loads the file, adds it to the wav_files cache and returns a pointer to the
- * wav_file structure on success.
- * 
- * Returns NULL if the file was not found or could not be loaded.
-*/
-wav_file *wav_search(uint32_t hash, std::string path)
-{
-	WIN32_FIND_DATA node;
-	
-	HANDLE dir = FindFirstFile(std::string(path + "\\*").c_str(), &node);
-	
-	while(dir != INVALID_HANDLE_VALUE)
-	{
-		std::string name  = node.cFileName;
-		std::string npath = path + "\\" + name;
+		sample_rate = new_rate;
+		sample_bits = new_bits;
+		channels    = new_channels;
 		
-		if(name == "." || name == "..")
+		playing  = false;
+		looping  = false;
+		position = 0;
+		gain     = new_gain;
+	}
+	
+	audio_buffer(const audio_buffer &src)
+	{
+		buf  = new unsigned char[src.size];
+		size = src.size;
+		
+		memcpy(buf, src.buf, size);
+		
+		sample_rate = src.sample_rate;
+		sample_bits = src.sample_bits;
+		channels    = src.channels;
+		
+		playing  = src.playing;
+		looping  = src.looping;
+		position = src.position;
+		gain     = src.gain;
+	}
+	
+	~audio_buffer()
+	{
+		delete buf;
+	}
+	
+	std::vector<int16_t> read_frame()
+	{
+		/* Step 1: Populate resample_in with samples in the source
+		 * format.
+		*/
+		
+		size_t input_frame_size    = (sample_bits / 8) * channels;    /* Size of one audio frame in the buffer */
+		size_t input_frames_needed = sample_rate / config.frame_rate; /* Number of those frames needed */
+		
+		size_t ri_size             = input_frame_size * input_frames_needed;
+		unsigned char *resample_in = new unsigned char[ri_size];
+		
+		if(sample_bits == 8)
 		{
-			
+			memset(resample_in, 128, ri_size);
 		}
-		else if(node.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		else{
+			memset(resample_in, 0, ri_size);
+		}
+		
+		for(size_t f = 0; f < input_frames_needed && playing; ++f)
 		{
-			wav_file *r = wav_search(hash, npath);
-			
-			if(r)
+			if(looping && position + input_frame_size >= size)
 			{
-				FindClose(dir);
-				return r;
+				position = 0;
 			}
-		}
-		else if(strcasecmp(node.cFileName + strlen(node.cFileName) - 4, ".wav") == 0)
-		{
-			uint32_t file_hash = get_wav_file_hash(npath.c_str());
 			
-			if(file_hash && hash == file_hash)
+			if(position + input_frame_size < size)
 			{
-				FindClose(dir);
-				
-				return &(wav_files.insert(std::make_pair(hash, wav_file(npath))).first->second);
+				memcpy(resample_in + (input_frame_size * f), buf + position, input_frame_size);
+				position += input_frame_size;
 			}
 		}
 		
-		if(!FindNextFile(dir, &node))
-		{
-			FindClose(dir);
-			break;
-		}
-	}
-	
-	return NULL;
-}
-
-wav_file *get_wav_file(uint32_t hash)
-{
-	std::map<uint32_t, wav_file>::iterator w = wav_files.find(hash);
-	
-	if(w != wav_files.end())
-	{
-		return &(w->second);
-	}
-	
-	for(size_t i = 0; i < wav_search_path.size(); i++)
-	{
-		wav_file *file = wav_search(hash, wav_search_path[i]);
+		/* Step 2: Resample to the output format. */
 		
-		if(file)
+		size_t ro_size              = pcm_resample_bufsize(input_frames_needed, channels, sample_rate, SAMPLE_RATE, SAMPLE_BITS);
+		unsigned char *resample_out = new unsigned char[ro_size];
+		
+		memset(resample_out, 0, ro_size);
+		
+		pcm_resample(resample_in, resample_out, input_frames_needed, channels, sample_rate, SAMPLE_RATE, sample_bits, SAMPLE_BITS);
+		
+		/* Step 3: Extract the samples from the PCM data and drop or
+		 * duplicate channels as necessary.
+		*/
+		
+		std::vector<int16_t> ret;
+		
+		for(size_t f = 0; f < (SAMPLE_RATE / config.frame_rate); ++f)
 		{
-			return file;
-		}
-	}
-	
-	return NULL;
-}
-
-/* Returns true if any of the samples in the given PCM data are at the minimum
- * or maximum representable values.
-*/
-bool pcm_contains_clipping(const void *data, size_t samples, int bits)
-{
-	uint8_t *data_8  = (uint8_t*)(data);
-	int16_t *data_16 = (int16_t*)(data);
-	
-	for(size_t i = 0; i < samples; i++)
-	{
-		if(bits == 8)
-		{
-			uint8_t sample = *(data_8++);
+			size_t so = f * channels * 2;
 			
-			if(sample == 0 || sample == UINT8_MAX)
+			if(so + 1 < ro_size)
 			{
-				return true;
+				ret.push_back(*(int16_t*)(resample_out + so) * gain);
+				so += 2;
+			}
+			else{
+				ret.push_back(0);
+			}
+			
+			if(channels >= 2 && so + 1 < ro_size)
+			{
+				ret.push_back(*(int16_t*)(resample_out + so) * gain);
+				so += 2;
+			}
+			else{
+				ret.push_back(ret.back());
 			}
 		}
-		else if(bits == 16)
-		{
-			int16_t sample = *(data_16++);
-			
-			if(sample == INT16_MIN || sample == INT16_MAX)
-			{
-				return true;
-			}
-		}
-	}
-	
-	return false;
-}
-
-struct audio_handle
-{
-	wav_file *file;
-	
-	ga_Handle *handle;
-	gau_SampleSourceLoop *loop;
-	
-	audio_handle(ga_Mixer *mixer, wav_file *_file, int volume)
-	{
-		file = _file;
 		
-		assert((handle = gau_create_handle_sound(mixer, file->sound, NULL, NULL, &loop)));
+		delete resample_out;
+		delete resample_in;
 		
-		ga_handle_setParamf(handle, GA_HANDLE_PARAM_GAIN, (gc_float32)(volume) / 100);
+		return ret;
 	}
 };
 
-void destroy_ga_handles(std::map<unsigned int, audio_handle> &handles)
-{
-	for(std::map<unsigned int, audio_handle>::iterator h = handles.begin(); h != handles.end(); h++)
-	{
-		ga_handle_destroy(h->second.handle);
-	}
-	
-	handles.clear();
-}
+typedef std::map<unsigned int, audio_buffer>::iterator buffer_iter;
 
 bool make_output_wav()
 {
@@ -272,33 +182,21 @@ bool make_output_wav()
 		return false;
 	}
 	
-	SF_INFO out_fmt;
+	SF_INFO wav_fmt;
+	wav_fmt.samplerate = SAMPLE_RATE;
+	wav_fmt.channels   = CHANNELS;
+	wav_fmt.format     = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
 	
-	out_fmt.samplerate = SAMPLE_RATE;
-	out_fmt.channels   = CHANNELS;
-	out_fmt.format     = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
-	
-	SNDFILE *out_wav = sf_open(wav_path.c_str(), SFM_WRITE, &out_fmt);
-	assert(out_wav);
-	
-	struct ga_Format mixer_fmt;
-	
-	mixer_fmt.sampleRate    = SAMPLE_RATE;
-	mixer_fmt.bitsPerSample = SAMPLE_BITS;
-	mixer_fmt.numChannels   = CHANNELS;
-	
-	ga_Mixer *mixer = ga_mixer_create(&mixer_fmt, SAMPLE_RATE / config.frame_rate);
-	
-	/* Buffer to hold one frame of mixed audio. */
-	
-	size_t frame_bytes = (SAMPLE_RATE / config.frame_rate) * (SAMPLE_BITS / 8) * CHANNELS;
-	char *frame_buf    = new char[frame_bytes];
+	SNDFILE *wav = sf_open(wav_path.c_str(), SFM_WRITE, &wav_fmt);
+	if(!wav)
+	{
+		log_push(std::string("Could not open ") + wav_path + ": " + sf_strerror(NULL) + "\r\n");
+		return false;
+	}
 	
 	int volume = config.init_vol;
 	
-	/* Map of buf_id values to ga_Handle objects. */
-	
-	std::map<unsigned int, audio_handle> handles;
+	std::map<unsigned int, audio_buffer> buffers;
 	
 	struct audio_event event;
 	
@@ -310,124 +208,236 @@ bool make_output_wav()
 	{
 		assert(event.frame >= frame_num);
 		
+		if(event.check != 0x12345678)
+		{
+			log_push("Encountered record with invalid check\r\n");
+			break;
+		}
+		
 		/* Mix audio for any frames before this one. */
 		
 		while(frame_num < event.frame)
 		{
-			frame_num++;
+			++frame_num;
 			
-			assert(ga_mixer_mix(mixer, frame_buf) == GC_SUCCESS);
-			assert(sf_write_raw(out_wav, frame_buf, frame_bytes) == frame_bytes);
+			/* Get samples from each buffer, combine them all. */
 			
-			size_t samples = (SAMPLE_RATE / config.frame_rate) * CHANNELS;
+			std::vector<int64_t> m_samples((SAMPLE_RATE / config.frame_rate) * 2);
 			
-			if(config.fix_clipping && volume > config.min_vol && pcm_contains_clipping(frame_buf, samples, SAMPLE_BITS))
+			for(buffer_iter b = buffers.begin(); b != buffers.end(); ++b)
 			{
-				log_push("Clipping detected on frame " + to_string(frame_num) + " at " + to_string(volume) + "% volume\r\n");
+				std::vector<int16_t> b_samples = b->second.read_frame();
 				
-				if((volume -= config.step_vol) < config.min_vol)
+				assert(m_samples.size() == b_samples.size());
+				
+				for(size_t i = 0; i < m_samples.size() && i < b_samples.size(); ++i)
 				{
-					volume = config.min_vol;
+					m_samples[i] += b_samples[i];
 				}
-				
-				log_push("Trying with " + to_string(volume) + "% volume...\r\n");
-				
-				/* Restart from the beginning with the new
-				 * volume.
-				*/
-				
-				frame_num = 0;
-				
-				assert(sf_seek(out_wav, 0, SEEK_SET) == 0);
-				assert(fseek(log, 0, SEEK_SET) == 0);
-				
-				destroy_ga_handles(handles);
-				
-				goto RESTART;
 			}
+			
+			/* Search for any samples which will be clipped. */
+			
+			if(config.fix_clipping && volume > config.min_vol)
+			{
+				for(size_t i = 0; i < m_samples.size(); ++i)
+				{
+					if(m_samples[i] < INT16_MIN || m_samples[i] > INT16_MAX)
+					{
+						log_push("Clipping detected on frame " + to_string(frame_num) + " at " + to_string(volume) + "% volume\r\n");
+						
+						/* TODO: Reduce volume based on
+						 * clipping rather than stepping.
+						*/
+						
+						if((volume -= config.step_vol) < config.min_vol)
+						{
+							volume = config.min_vol;
+						}
+						
+						log_push("Trying with " + to_string(volume) + "% volume...\r\n");
+						
+						frame_num = 0;
+						
+						buffers.clear();
+						
+						assert(sf_seek(wav, 0, SEEK_SET) == 0);
+						
+						assert(fseek(log, 0, SEEK_SET) == 0);
+						
+						goto RESTART;
+					}
+				}
+			}
+			
+			/* Convert the mixed samples to int16_t and write to the
+			 * output WAV.
+			*/
+			
+			std::vector<int16_t> w_samples(m_samples.begin(), m_samples.end());
+			sf_write_short(wav, &(w_samples[0]), w_samples.size());
 		}
 		
-		std::map<unsigned int, audio_handle>::iterator hi = handles.find(event.buf_id);
-		
-		if(event.op == AUDIO_OP_LOAD)
+		switch(event.op)
 		{
-			wav_file *wav = get_wav_file(event.arg);
+			case AUDIO_OP_INIT:
+			{
+				audio_buffer ab(event.e.init.size, event.e.init.sample_rate, event.e.init.sample_bits, event.e.init.channels, ((double)(volume) / 100));
+				buffers.insert(std::make_pair(event.e.init.buf_id, ab));
+				
+				break;
+			}
 			
-			if(wav)
+			case AUDIO_OP_FREE:
 			{
-				if(hi != handles.end())
-				{
-					ga_handle_destroy(hi->second.handle);
-					handles.erase(hi);
-				}
+				buffers.erase(event.e.free.buf_id);
 				
-				handles.insert(std::make_pair(event.buf_id, audio_handle(mixer, wav, volume)));
+				break;
 			}
-			else{
-				log_push("Unknown WAV hash: " + to_string(event.arg) + "\r\n");
-			}
-		}
-		else if(hi != handles.end())
-		{
-			audio_handle *h = &(hi->second);
 			
-			if(event.op == AUDIO_OP_FREE)
+			case AUDIO_OP_CLONE:
 			{
-				ga_handle_destroy(h->handle);
-				handles.erase(hi);
-			}
-			else if(event.op == AUDIO_OP_CLONE)
-			{  
-				handles.insert(std::make_pair(event.arg, audio_handle(mixer, h->file, volume)));
-			}
-			else if(event.op == AUDIO_OP_START)
-			{
-				if(event.arg & AUDIO_FLAG_REPEAT)
+				buffer_iter bi = buffers.find(event.e.clone.src_buf_id);
+				
+				if(bi == buffers.end())
 				{
-					gau_sample_source_loop_set(h->loop, -1, 0);
-				}
-				else{
-					gau_sample_source_loop_clear(h->loop);
+					log_push("Attempted to clone unknown buffer!\r\n");
+					break;
 				}
 				
-				ga_handle_play(h->handle);
-			}
-			else if(event.op == AUDIO_OP_STOP)
-			{
-				ga_handle_stop(h->handle);
-			}
-			else if(event.op == AUDIO_OP_JMP)
-			{
-				ga_Format wav_fmt;
-				ga_handle_format(h->handle, &wav_fmt);
+				buffers.insert(std::make_pair(event.e.clone.new_buf_id, bi->second));
 				
-				ga_handle_seek(h->handle, event.arg / (wav_fmt.bitsPerSample / 8));
+				break;
 			}
-			else if(event.op == AUDIO_OP_FREQ)
+			
+			case AUDIO_OP_LOAD:
 			{
-				ga_Format wav_fmt;
-				ga_handle_format(h->handle, &wav_fmt);
+				buffer_iter bi = buffers.find(event.e.load.buf_id);
 				
-				gc_float32 pitch = (gc_float32)(event.arg) / wav_fmt.sampleRate;
+				if(bi == buffers.end())
+				{
+					log_push("Attempted to load into unknown buffer!\r\n");
+					break;
+				}
 				
-				ga_handle_setParamf(h->handle, GA_HANDLE_PARAM_PITCH, pitch);
+				unsigned char *tmp = new unsigned char[event.e.load.size];
+				
+				if(fread(tmp, 1, event.e.load.size, log) != event.e.load.size)
+				{
+					log_push("Unexpected end of log!\r\n");
+					
+					delete tmp;
+					
+					fclose(log);
+					return false;
+				}
+				
+				if((event.e.load.offset + event.e.load.size) > bi->second.size)
+				{
+					size_t max = bi->second.size - event.e.load.offset;
+					
+					log_push("Attempted to write past the end of a buffer!\r\n");
+					log_push(std::string("Truncating write from ") + to_string(event.e.load.size) + " to " + to_string(max) + "\r\n");
+					
+					event.e.load.size = max;
+				}
+				
+				memcpy(bi->second.buf + event.e.load.offset, tmp, event.e.load.size);
+				
+				delete tmp;
+				
+				break;
 			}
-			else if(event.op == AUDIO_OP_VOLUME)
+			
+			case AUDIO_OP_START:
 			{
-				gc_float32 gain = ((gc_float32)(event.arg) / 10000) * ((gc_float32)(volume) / 100);
+				buffer_iter bi = buffers.find(event.e.start.buf_id);
 				
-				ga_handle_setParamf(h->handle, GA_HANDLE_PARAM_GAIN, gain);
+				if(bi == buffers.end())
+				{
+					log_push("Attempted to play unknown buffer!\r\n");
+					break;
+				}
+				
+				bi->second.playing = true;
+				bi->second.looping = event.e.start.loop;
+				
+				break;
+			}
+			
+			case AUDIO_OP_STOP:
+			{
+				buffer_iter bi = buffers.find(event.e.stop.buf_id);
+				
+				if(bi == buffers.end())
+				{
+					log_push("Attempted to stop unknown buffer!\r\n");
+					break;
+				}
+				
+				bi->second.playing = false;
+				
+				break;
+			}
+			
+			case AUDIO_OP_JMP:
+			{
+				buffer_iter bi = buffers.find(event.e.jmp.buf_id);
+				
+				if(bi == buffers.end())
+				{
+					log_push("Attempted to set position of unknown buffer!\r\n");
+					break;
+				}
+				
+				if(event.e.jmp.offset >= bi->second.size)
+				{
+					log_push("Attempted to set position past end of buffer!\r\n");
+					break;
+				}
+				
+				bi->second.position = event.e.jmp.offset;
+				
+				break;
+			}
+			
+			case AUDIO_OP_FREQ:
+			{
+				buffer_iter bi = buffers.find(event.e.freq.buf_id);
+				
+				if(bi == buffers.end())
+				{
+					log_push("Attempted to set frequency of unknown buffer!\r\n");
+					break;
+				}
+				
+				bi->second.sample_rate = event.e.freq.sample_rate;
+				
+				break;
+			}
+			
+			case AUDIO_OP_GAIN:
+			{
+				buffer_iter bi = buffers.find(event.e.gain.buf_id);
+				
+				if(bi == buffers.end())
+				{
+					log_push("Attempted to set gain of unknown buffer!\r\n");
+					break;
+				}
+				
+				bi->second.gain = event.e.gain.gain * ((double)(volume) / 100);
+				
+				break;
+			}
+			
+			default:
+			{
+				log_push("Unknown event ID in log!\r\n");
+				break;
 			}
 		}
 	}
-	
-	destroy_ga_handles(handles);
-	
-	delete frame_buf;
-	
-	ga_mixer_destroy(mixer);
-	
-	sf_close(out_wav);
 	
 	fclose(log);
 	

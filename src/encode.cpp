@@ -21,7 +21,6 @@
 #include "encode.hpp"
 #include "capture.hpp"
 #include "ui.hpp"
-#include "audiolog.h"
 
 const ffmpeg_format video_formats[] = {
 	{ "None", NULL, NULL },
