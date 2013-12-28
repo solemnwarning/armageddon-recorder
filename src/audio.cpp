@@ -182,6 +182,101 @@ bool make_output_wav()
 		return false;
 	}
 	
+	/* Background audio is held in a streaming buffer and properly
+	 * synchronising the play/write pointers after the fact is difficult,
+	 * so we make a first pass over the log, concatenating each blob of PCM
+	 * together before resampling it to the output format.
+	*/
+	
+	std::vector<int16_t> background_samples;
+	size_t background_offset = 0;
+	
+	{
+		unsigned int background_buffer = 0;
+		std::vector<unsigned char> background_raw;
+		
+		unsigned int background_rate;
+		unsigned int background_bits;
+		unsigned int background_channels;
+		
+		struct audio_event event;
+		while(fread(&event, sizeof(event), 1, log))
+		{
+			if(event.check != 0x12345678)
+			{
+				log_push("Encountered record with invalid check\r\n");
+				break;
+			}
+			
+			if(event.op == AUDIO_OP_INIT)
+			{
+				/* Assume the last created (not cloned) buffer
+				 * is the one used for background audio.
+				*/
+				
+				background_buffer = event.e.init.buf_id;
+				background_raw.clear();
+				
+				background_rate     = event.e.init.sample_rate;
+				background_bits     = event.e.init.sample_bits;
+				background_channels = event.e.init.channels;
+			}
+			else if(event.op == AUDIO_OP_LOAD && event.e.load.buf_id == background_buffer)
+			{
+				size_t base = background_raw.size();
+				background_raw.resize(base + event.e.load.size);
+				
+				if(fread(&(background_raw[base]), 1, event.e.load.size, log) != event.e.load.size)
+				{
+					log_push("Unexpected end of log!\r\n");
+					fclose(log);
+					return false;
+				}
+			}
+		}
+		
+		assert(fseek(log, 0, SEEK_SET) == 0);
+		
+		/* Resample the raw PCM to the output format. */
+		
+		size_t raw_frames = background_raw.size() / ((background_bits / 8) * background_channels);
+		size_t ro_size    = pcm_resample_bufsize(raw_frames, background_channels, background_rate, SAMPLE_RATE, SAMPLE_BITS);
+		
+		unsigned char *resample_out = new unsigned char[ro_size];
+		memset(resample_out, 0, ro_size);
+		
+		pcm_resample(&(background_raw[0]), resample_out, raw_frames, background_channels, background_rate, SAMPLE_RATE, background_bits, SAMPLE_BITS);
+		
+		/* Populate the background_samples buffer with samples that can
+		 * be directly copied into m_samples, duplicating or skipping
+		 * channels as necessary.
+		*/
+		
+		size_t ro_frames = pcm_resample_frames(raw_frames, background_rate, SAMPLE_RATE);
+		int16_t *ro_ptr  = (int16_t*)(resample_out);
+		
+		background_samples.reserve(ro_frames * CHANNELS);
+		
+		for(size_t f = 0; f < ro_frames; ++f)
+		{
+			for(unsigned int c = 0; c < CHANNELS; ++c)
+			{
+				if(c < background_channels)
+				{
+					background_samples.push_back(*(ro_ptr++));
+				}
+				else{
+					background_samples.push_back(background_samples.front());
+				}
+			}
+			
+			if(background_channels > CHANNELS)
+			{
+				ro_ptr += (background_channels - CHANNELS);
+			}
+		}
+	}
+	
 	SF_INFO wav_fmt;
 	wav_fmt.samplerate = SAMPLE_RATE;
 	wav_fmt.channels   = CHANNELS;
@@ -197,6 +292,7 @@ bool make_output_wav()
 	int volume = config.init_vol;
 	
 	std::map<unsigned int, audio_buffer> buffers;
+	unsigned int background_buffer = 0;
 	
 	struct audio_event event;
 	
@@ -222,10 +318,15 @@ bool make_output_wav()
 			
 			/* Get samples from each buffer, combine them all. */
 			
-			std::vector<int64_t> m_samples((SAMPLE_RATE / config.frame_rate) * 2);
+			std::vector<int64_t> m_samples((SAMPLE_RATE / config.frame_rate) * CHANNELS);
 			
 			for(buffer_iter b = buffers.begin(); b != buffers.end(); ++b)
 			{
+				if(b->first == background_buffer)
+				{
+					continue;
+				}
+				
 				std::vector<int16_t> b_samples = b->second.read_frame();
 				
 				assert(m_samples.size() == b_samples.size());
@@ -233,6 +334,14 @@ bool make_output_wav()
 				for(size_t i = 0; i < m_samples.size() && i < b_samples.size(); ++i)
 				{
 					m_samples[i] += b_samples[i];
+				}
+			}
+			
+			for(size_t i = 0; i < m_samples.size() && (background_samples.size() - background_offset) >= CHANNELS;)
+			{
+				for(int c = 0; c < CHANNELS; ++c)
+				{
+					m_samples[i++] += (background_samples[background_offset++] * ((double)(volume) / 100));
 				}
 			}
 			
@@ -285,6 +394,8 @@ bool make_output_wav()
 				audio_buffer ab(event.e.init.size, event.e.init.sample_rate, event.e.init.sample_bits, event.e.init.channels, ((double)(volume) / 100));
 				buffers.insert(std::make_pair(event.e.init.buf_id, ab));
 				
+				background_buffer = event.e.init.buf_id;
+				
 				break;
 			}
 			
@@ -312,24 +423,26 @@ bool make_output_wav()
 			
 			case AUDIO_OP_LOAD:
 			{
-				buffer_iter bi = buffers.find(event.e.load.buf_id);
-				
-				if(bi == buffers.end())
-				{
-					log_push("Attempted to load into unknown buffer!\r\n");
-					break;
-				}
-				
 				unsigned char *tmp = new unsigned char[event.e.load.size];
 				
 				if(fread(tmp, 1, event.e.load.size, log) != event.e.load.size)
 				{
 					log_push("Unexpected end of log!\r\n");
+					delete tmp;
+					sf_close(wav);
+					fclose(log);
 					
+					return false;
+				}
+				
+				buffer_iter bi = buffers.find(event.e.load.buf_id);
+				
+				if(bi == buffers.end())
+				{
+					log_push("Attempted to load into unknown buffer!\r\n");
 					delete tmp;
 					
-					fclose(log);
-					return false;
+					break;
 				}
 				
 				if((event.e.load.offset + event.e.load.size) > bi->second.size)
@@ -439,6 +552,7 @@ bool make_output_wav()
 		}
 	}
 	
+	sf_close(wav);
 	fclose(log);
 	
 	return true;
