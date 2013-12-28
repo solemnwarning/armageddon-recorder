@@ -195,9 +195,6 @@ static void toggle_clipping(HWND hwnd)
 {
 	bool enabled = checkbox_get(GetDlgItem(hwnd, FIX_CLIPPING));
 	
-	EnableWindow(GetDlgItem(hwnd, STEP_VOL_SLIDER), enabled);
-	EnableWindow(GetDlgItem(hwnd, STEP_VOL_EDIT), enabled);
-	
 	EnableWindow(GetDlgItem(hwnd, MIN_VOL_SLIDER), enabled);
 	EnableWindow(GetDlgItem(hwnd, MIN_VOL_EDIT), enabled);
 }
@@ -256,7 +253,6 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 			checkbox_set(GetDlgItem(hwnd, FIX_CLIPPING), true);
 			toggle_clipping(hwnd);
 			
-			volume_init(GetDlgItem(hwnd, STEP_VOL_SLIDER), GetDlgItem(hwnd, STEP_VOL_EDIT), config.step_vol);
 			volume_init(GetDlgItem(hwnd, MIN_VOL_SLIDER), GetDlgItem(hwnd, MIN_VOL_EDIT), config.min_vol);
 			
 			/* Video settings... */
@@ -347,7 +343,6 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 						
 						config.fix_clipping = checkbox_get(GetDlgItem(hwnd, FIX_CLIPPING));
 						
-						config.step_vol = SendMessage(GetDlgItem(hwnd, STEP_VOL_SLIDER), TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
 						config.min_vol  = SendMessage(GetDlgItem(hwnd, MIN_VOL_SLIDER), TBM_GETPOS, (WPARAM)(0), (LPARAM)(0));
 						
 						/* Video settings... */
@@ -575,12 +570,6 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 					break;
 				}
 				
-				case STEP_VOL_SLIDER:
-				{
-					volume_on_slider((HWND)(lp), GetDlgItem(hwnd, STEP_VOL_EDIT));
-					break;
-				}
-				
 				case MIN_VOL_SLIDER:
 				{
 					volume_on_slider((HWND)(lp), GetDlgItem(hwnd, MIN_VOL_EDIT));
@@ -709,7 +698,6 @@ int main(int argc, char **argv)
 	config.init_vol     = reg.get_dword("init_vol", 100);
 	
 	config.fix_clipping = reg.get_dword("fix_clipping", true);
-	config.step_vol     = reg.get_dword("step_vol", 5);
 	config.min_vol      = reg.get_dword("min_vol", 40);
 	
 	config.replay_dir = reg.get_string("replay_dir");
@@ -738,7 +726,6 @@ int main(int argc, char **argv)
 		reg.set_dword("init_vol", config.init_vol);
 		
 		reg.set_dword("fix_clipping", config.fix_clipping);
-		reg.set_dword("step_vol", config.step_vol);
 		reg.set_dword("min_vol", config.min_vol);
 		
 		reg.set_string("replay_dir", config.replay_dir);

@@ -24,6 +24,7 @@
 #include <sndfile.h>
 #include <tr1/memory>
 #include <map>
+#include <list>
 
 #include "audio.hpp"
 #include "ds-capture.h"
@@ -44,7 +45,7 @@ struct audio_buffer
 	size_t position;
 	double gain;
 	
-	audio_buffer(size_t new_size, unsigned int new_rate, unsigned int new_bits, unsigned int new_channels, double new_gain)
+	audio_buffer(size_t new_size, unsigned int new_rate, unsigned int new_bits, unsigned int new_channels)
 	{
 		buf  = new unsigned char[new_size];
 		size = new_size;
@@ -64,7 +65,7 @@ struct audio_buffer
 		playing  = false;
 		looping  = false;
 		position = 0;
-		gain     = new_gain;
+		gain     = 1.00;
 	}
 	
 	audio_buffer(const audio_buffer &src)
@@ -277,20 +278,6 @@ bool make_output_wav()
 		}
 	}
 	
-	SF_INFO wav_fmt;
-	wav_fmt.samplerate = SAMPLE_RATE;
-	wav_fmt.channels   = CHANNELS;
-	wav_fmt.format     = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
-	
-	SNDFILE *wav = sf_open(wav_path.c_str(), SFM_WRITE, &wav_fmt);
-	if(!wav)
-	{
-		log_push(std::string("Could not open ") + wav_path + ": " + sf_strerror(NULL) + "\r\n");
-		return false;
-	}
-	
-	int volume = config.init_vol;
-	
 	std::map<unsigned int, audio_buffer> buffers;
 	unsigned int background_buffer = 0;
 	
@@ -298,7 +285,7 @@ bool make_output_wav()
 	
 	unsigned int frame_num = 0;
 	
-	RESTART:
+	std::list<int64_t> all_samples;
 	
 	while(fread(&event, sizeof(event), 1, log))
 	{
@@ -316,9 +303,13 @@ bool make_output_wav()
 		{
 			++frame_num;
 			
-			/* Get samples from each buffer, combine them all. */
+			/* Initialise a vector to hold the samples from this
+			 * frame while mixing.
+			*/
 			
-			std::vector<int64_t> m_samples((SAMPLE_RATE / config.frame_rate) * CHANNELS);
+			std::vector<int64_t> f_samples((SAMPLE_RATE / config.frame_rate) * CHANNELS);
+			
+			/* Mix in sound effects... */
 			
 			for(buffer_iter b = buffers.begin(); b != buffers.end(); ++b)
 			{
@@ -329,69 +320,36 @@ bool make_output_wav()
 				
 				std::vector<int16_t> b_samples = b->second.read_frame();
 				
-				assert(m_samples.size() == b_samples.size());
+				assert(f_samples.size() == b_samples.size());
 				
-				for(size_t i = 0; i < m_samples.size() && i < b_samples.size(); ++i)
+				for(size_t i = 0; i < f_samples.size() && i < b_samples.size(); ++i)
 				{
-					m_samples[i] += b_samples[i];
+					f_samples[i] += b_samples[i];
 				}
 			}
 			
-			for(size_t i = 0; i < m_samples.size() && (background_samples.size() - background_offset) >= CHANNELS;)
+			/* Mix in background music... */
+			
+			for(size_t i = 0; i < f_samples.size() && (background_samples.size() - background_offset) >= CHANNELS;)
 			{
-				for(int c = 0; c < CHANNELS; ++c)
+				for(int c = 0; c < CHANNELS; ++c, ++i, ++background_offset)
 				{
-					m_samples[i++] += (background_samples[background_offset++] * ((double)(volume) / 100));
+					f_samples[i] += background_samples[background_offset];
 				}
 			}
 			
-			/* Search for any samples which will be clipped. */
-			
-			if(config.fix_clipping && volume > config.min_vol)
-			{
-				for(size_t i = 0; i < m_samples.size(); ++i)
-				{
-					if(m_samples[i] < INT16_MIN || m_samples[i] > INT16_MAX)
-					{
-						log_push("Clipping detected on frame " + to_string(frame_num) + " at " + to_string(volume) + "% volume\r\n");
-						
-						/* TODO: Reduce volume based on
-						 * clipping rather than stepping.
-						*/
-						
-						if((volume -= config.step_vol) < config.min_vol)
-						{
-							volume = config.min_vol;
-						}
-						
-						log_push("Trying with " + to_string(volume) + "% volume...\r\n");
-						
-						frame_num = 0;
-						
-						buffers.clear();
-						
-						assert(sf_seek(wav, 0, SEEK_SET) == 0);
-						
-						assert(fseek(log, 0, SEEK_SET) == 0);
-						
-						goto RESTART;
-					}
-				}
-			}
-			
-			/* Convert the mixed samples to int16_t and write to the
-			 * output WAV.
+			/* Append the mixed samples from this frame to the list
+			 * of all samples.
 			*/
 			
-			std::vector<int16_t> w_samples(m_samples.begin(), m_samples.end());
-			sf_write_short(wav, &(w_samples[0]), w_samples.size());
+			all_samples.insert(all_samples.end(), f_samples.begin(), f_samples.end());
 		}
 		
 		switch(event.op)
 		{
 			case AUDIO_OP_INIT:
 			{
-				audio_buffer ab(event.e.init.size, event.e.init.sample_rate, event.e.init.sample_bits, event.e.init.channels, ((double)(volume) / 100));
+				audio_buffer ab(event.e.init.size, event.e.init.sample_rate, event.e.init.sample_bits, event.e.init.channels);
 				buffers.insert(std::make_pair(event.e.init.buf_id, ab));
 				
 				background_buffer = event.e.init.buf_id;
@@ -429,7 +387,6 @@ bool make_output_wav()
 				{
 					log_push("Unexpected end of log!\r\n");
 					delete tmp;
-					sf_close(wav);
 					fclose(log);
 					
 					return false;
@@ -539,7 +496,7 @@ bool make_output_wav()
 					break;
 				}
 				
-				bi->second.gain = event.e.gain.gain * ((double)(volume) / 100);
+				bi->second.gain = event.e.gain.gain;
 				
 				break;
 			}
@@ -552,8 +509,54 @@ bool make_output_wav()
 		}
 	}
 	
-	sf_close(wav);
 	fclose(log);
+	
+	{
+		int volume = config.init_vol, pv;
+		
+		std::vector<int16_t> w_samples(all_samples.size());
+		
+		do {
+			pv = volume;
+			
+			std::list<int64_t>::iterator si = all_samples.begin();
+			
+			for(size_t i = 0; si != all_samples.end(); ++si, ++i)
+			{
+				int s = *si * ((double)(volume) / 100);
+				
+				while(config.fix_clipping && volume > config.min_vol && (s < INT16_MIN || s > INT16_MAX))
+				{
+					s = *si * ((double)(--volume) / 100);
+				}
+				
+				w_samples[i] = s;
+			}
+			
+			if(volume != pv)
+			{
+				log_push(std::string("Clipping detected, reducing volume to ") + to_string(volume) + "%\r\n");
+			}
+		} while(volume != pv);
+		
+		/* Write the output audio file. */
+		
+		SF_INFO wav_fmt;
+		wav_fmt.samplerate = SAMPLE_RATE;
+		wav_fmt.channels   = CHANNELS;
+		wav_fmt.format     = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
+		
+		SNDFILE *wav = sf_open(wav_path.c_str(), SFM_WRITE, &wav_fmt);
+		if(!wav)
+		{
+			log_push(std::string("Could not open ") + wav_path + ": " + sf_strerror(NULL) + "\r\n");
+			return false;
+		}
+		
+		sf_write_short(wav, &(w_samples[0]), w_samples.size());
+		
+		sf_close(wav);
+	}
 	
 	return true;
 }
