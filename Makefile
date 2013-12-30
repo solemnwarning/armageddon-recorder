@@ -26,10 +26,10 @@ CXXFLAGS := -Wall
 WINDRES  := windres
 
 OBJS := src/main.o src/resource.o src/audio.o src/reg.o src/encode.o \
-	src/capture.o src/ui.o src/resample.o
+	src/capture.o src/ui.o
 
 HDRS := src/main.hpp src/resource.h src/audio.hpp src/reg.hpp src/encode.hpp \
-	src/capture.hpp src/ui.hpp
+	src/capture.hpp src/ui.hpp src/resample.hpp
 
 all: armageddon-recorder.exe dsound.dll dump.exe
 
@@ -52,9 +52,6 @@ dsound.dll: src/ds-capture.o
 	$(CC) $(CFLAGS) -Wl,--enable-stdcall-fixup -shared -o $@ $^
 
 src/ds-capture.o: src/ds-capture.c
-	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<
-
-src/resample.o: src/resample.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<
 
 src/%.o: src/%.cpp $(HDRS)

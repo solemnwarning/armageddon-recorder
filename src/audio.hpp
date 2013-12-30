@@ -34,11 +34,4 @@
 
 bool make_output_wav();
 
-extern "C"
-{
-	unsigned int pcm_resample_frames(unsigned int frames, int rate_in, int rate_out);
-	unsigned int pcm_resample_bufsize(unsigned int frames, int channels, int rate_in, int rate_out, int bits_out);
-	void pcm_resample(const void *pcm_in, const void *pcm_out, unsigned int frames, int channels, int rate_in, int rate_out, int bits_in, int bits_out);
-}
-
 #endif /* !AREC_AUDIO_HPP */

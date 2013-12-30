@@ -30,6 +30,7 @@
 #include "ds-capture.h"
 #include "ui.hpp"
 #include "capture.hpp"
+#include "resample.hpp"
 
 struct audio_buffer
 {
@@ -126,12 +127,16 @@ struct audio_buffer
 		
 		/* Step 2: Resample to the output format. */
 		
-		size_t ro_size              = pcm_resample_bufsize(input_frames_needed, channels, sample_rate, SAMPLE_RATE, SAMPLE_BITS);
-		unsigned char *resample_out = new unsigned char[ro_size];
+		std::vector<int16_t> resample_out;
 		
-		memset(resample_out, 0, ro_size);
-		
-		pcm_resample(resample_in, resample_out, input_frames_needed, channels, sample_rate, SAMPLE_RATE, sample_bits, SAMPLE_BITS);
+		if(sample_bits == 8)
+		{
+			resample_out = pcm_resample<uint8_t,int16_t>((uint8_t*)(resample_in), (uint8_t*)(resample_in + ri_size), channels, sample_rate, SAMPLE_RATE);
+		}
+		else if(sample_bits == 16)
+		{
+			resample_out = pcm_resample<int16_t,int16_t>((int16_t*)(resample_in), (int16_t*)(resample_in + ri_size), channels, sample_rate, SAMPLE_RATE);
+		}
 		
 		/* Step 3: Extract the samples from the PCM data and drop or
 		 * duplicate channels as necessary.
@@ -141,28 +146,25 @@ struct audio_buffer
 		
 		for(size_t f = 0; f < (SAMPLE_RATE / config.frame_rate); ++f)
 		{
-			size_t so = f * channels * 2;
+			size_t so = f * channels;
 			
-			if(so + 1 < ro_size)
+			if(so < resample_out.size())
 			{
-				ret.push_back(*(int16_t*)(resample_out + so) * gain);
-				so += 2;
+				ret.push_back(resample_out[so++] * gain);
 			}
 			else{
 				ret.push_back(0);
 			}
 			
-			if(channels >= 2 && so + 1 < ro_size)
+			if(channels >= 2 && so < resample_out.size())
 			{
-				ret.push_back(*(int16_t*)(resample_out + so) * gain);
-				so += 2;
+				ret.push_back(resample_out[so++] * gain);
 			}
 			else{
 				ret.push_back(ret.back());
 			}
 		}
 		
-		delete resample_out;
 		delete resample_in;
 		
 		return ret;
@@ -240,31 +242,37 @@ bool make_output_wav()
 		
 		/* Resample the raw PCM to the output format. */
 		
-		size_t raw_frames = background_raw.size() / ((background_bits / 8) * background_channels);
-		size_t ro_size    = pcm_resample_bufsize(raw_frames, background_channels, background_rate, SAMPLE_RATE, SAMPLE_BITS);
+		std::vector<int16_t> resample_out;
 		
-		unsigned char *resample_out = new unsigned char[ro_size];
-		memset(resample_out, 0, ro_size);
-		
-		pcm_resample(&(background_raw[0]), resample_out, raw_frames, background_channels, background_rate, SAMPLE_RATE, background_bits, SAMPLE_BITS);
+		if(background_bits == 8)
+		{
+			uint8_t *br_begin = (uint8_t*)(&(background_raw[0]));
+			uint8_t *br_end   = (uint8_t*)(&(background_raw[0]) + background_raw.size());
+			
+			resample_out = pcm_resample<uint8_t,int16_t>(br_begin, br_end, background_channels, background_rate, SAMPLE_RATE);
+		}
+		else if(background_bits == 16)
+		{
+			int16_t *br_begin = (int16_t*)(&(background_raw[0]));
+			int16_t *br_end   = (int16_t*)(&(background_raw[0]) + background_raw.size());
+			
+			resample_out = pcm_resample<int16_t,int16_t>(br_begin, br_end, background_channels, background_rate, SAMPLE_RATE);
+		}
 		
 		/* Populate the background_samples buffer with samples that can
 		 * be directly copied into m_samples, duplicating or skipping
 		 * channels as necessary.
 		*/
 		
-		size_t ro_frames = pcm_resample_frames(raw_frames, background_rate, SAMPLE_RATE);
-		int16_t *ro_ptr  = (int16_t*)(resample_out);
+		background_samples.reserve((resample_out.size() / background_channels) * CHANNELS);
 		
-		background_samples.reserve(ro_frames * CHANNELS);
-		
-		for(size_t f = 0; f < ro_frames; ++f)
+		for(size_t s = 0; s < resample_out.size();)
 		{
 			for(unsigned int c = 0; c < CHANNELS; ++c)
 			{
 				if(c < background_channels)
 				{
-					background_samples.push_back(*(ro_ptr++));
+					background_samples.push_back(resample_out[s++]);
 				}
 				else{
 					background_samples.push_back(background_samples.front());
@@ -273,7 +281,7 @@ bool make_output_wav()
 			
 			if(background_channels > CHANNELS)
 			{
-				ro_ptr += (background_channels - CHANNELS);
+				s += (background_channels - CHANNELS);
 			}
 		}
 	}
