@@ -33,6 +33,7 @@
 #define RESAMPLE_HPP
 
 #include <math.h>
+#include <stdlib.h>
 #include <vector>
 #include <limits>
 #include <algorithm>
@@ -49,6 +50,18 @@ template <typename InSample, typename OutSample, typename InputIterator> std::ve
 	const OutSample out_zero = std::numeric_limits<OutSample>::is_signed
 		? 0
 		: ((std::numeric_limits<OutSample>::max() / 2) + 1);
+	
+	/* Determine the peak values of each sample type, used for scaling
+	 * samples appropriately when going between formats.
+	*/
+	
+	const InSample in_peak = std::numeric_limits<InSample>::is_integer
+		? (std::numeric_limits<InSample>::max() - in_zero)
+		: 1.0;
+	
+	const OutSample out_peak = std::numeric_limits<OutSample>::is_integer
+		? (std::numeric_limits<OutSample>::max() - out_zero)
+		: 1.0;
 	
 	/* Determine the number of input/output samples and frames. */
 	
@@ -112,7 +125,7 @@ template <typename InSample, typename OutSample, typename InputIterator> std::ve
 			
 			long double cs = isc - in_zero;
 			
-			cs *= (double)(std::numeric_limits<OutSample>::max() - out_zero) / (std::numeric_limits<InSample>::max() - in_zero);
+			cs *= (double)(out_peak) / in_peak;
 			
 			out.push_back((OutSample)(cs) + out_zero);
 		}
