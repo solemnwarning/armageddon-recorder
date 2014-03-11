@@ -118,3 +118,11 @@ ICON16             ICON           ".\\icon16.ico"
 
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 ICON32             ICON           ".\\icon32.ico"
+
+
+
+//
+// Manifest resources
+//
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+1                  RT_MANIFEST    ".\\manifest.xml"
