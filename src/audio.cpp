@@ -24,7 +24,7 @@
 #include <sndfile.h>
 #include <tr1/memory>
 #include <map>
-#include <list>
+#include <queue>
 
 #include "audio.hpp"
 #include "ds-capture.h"
@@ -173,6 +173,29 @@ struct audio_buffer
 
 typedef std::map<unsigned int, audio_buffer>::iterator buffer_iter;
 
+struct background_tmp
+{
+	/* PCM format */
+	unsigned int rate;
+	unsigned int bits;
+	unsigned int channels;
+	
+	/* PCM data */
+	std::vector<unsigned char> data;
+	
+	/* Confirmed as a background buffer */
+	bool is_background;
+	
+	/* Last frame an AUDIO_OP_START was seen at */
+	unsigned int start_frame;
+};
+
+struct background_buffer
+{
+	std::queue<int16_t> samples;
+	unsigned int start_frame;
+};
+
 bool make_output_wav()
 {
 	std::string log_path = config.capture_dir + "\\" FRAME_PREFIX "audio.dat";
@@ -187,20 +210,22 @@ bool make_output_wav()
 	
 	/* Background audio is held in a streaming buffer and properly
 	 * synchronising the play/write pointers after the fact is difficult,
-	 * so we make a first pass over the log, concatenating each blob of PCM
-	 * together before resampling it to the output format.
+	 * so we make a first pass over the log, locating each buffer which
+	 * receives writes from offsets other than zero and concatenate each
+	 * write to them together, forming buffers containing the full length
+	 * of each background track.
 	*/
 	
-	std::vector<int16_t> background_samples;
-	size_t background_offset = 0;
+	log_push("Searching for background music...\r\n");
+	
+	std::map<unsigned int, background_buffer> background_buffers;
 	
 	{
-		unsigned int background_buffer = 0;
-		std::vector<unsigned char> background_raw;
+		/* First we populate buffers_in with all the buffers and all the
+		 * data that ever gets written to them.
+		*/
 		
-		unsigned int background_rate;
-		unsigned int background_bits;
-		unsigned int background_channels;
+		std::map<unsigned int, background_tmp> buffers_in;
 		
 		struct audio_event event;
 		while(fread(&event, sizeof(event), 1, log))
@@ -213,87 +238,129 @@ bool make_output_wav()
 			
 			if(event.op == AUDIO_OP_INIT)
 			{
-				/* Assume the last created (not cloned) buffer
-				 * is the one used for background audio.
-				*/
+				background_tmp new_tmp;
 				
-				background_buffer = event.e.init.buf_id;
-				background_raw.clear();
+				new_tmp.rate     = event.e.init.sample_rate;
+				new_tmp.bits     = event.e.init.sample_bits;
+				new_tmp.channels = event.e.init.channels;
 				
-				background_rate     = event.e.init.sample_rate;
-				background_bits     = event.e.init.sample_bits;
-				background_channels = event.e.init.channels;
+				buffers_in.insert(std::make_pair(event.e.init.buf_id, new_tmp));
 			}
-			else if(event.op == AUDIO_OP_LOAD && event.e.load.buf_id == background_buffer)
+			else if(event.op == AUDIO_OP_LOAD)
 			{
-				size_t base = background_raw.size();
-				background_raw.resize(base + event.e.load.size);
+				auto b = buffers_in.find(event.e.load.buf_id);
+				if(b == buffers_in.end())
+				{
+					continue;
+				}
 				
-				if(fread(&(background_raw[base]), 1, event.e.load.size, log) != event.e.load.size)
+				size_t base = b->second.data.size();
+				b->second.data.resize(base + event.e.load.size);
+				
+				if(fread(&(b->second.data[base]), 1, event.e.load.size, log) != event.e.load.size)
 				{
 					log_push("Unexpected end of log!\r\n");
 					fclose(log);
 					return false;
 				}
+				
+				if(event.e.load.offset)
+				{
+					b->second.is_background = true;
+				}
+			}
+			else if(event.op == AUDIO_OP_START)
+			{
+				auto b = buffers_in.find(event.e.load.buf_id);
+				if(b == buffers_in.end())
+				{
+					continue;
+				}
+				
+				b->second.start_frame = event.frame;
 			}
 		}
 		
+		/* Reset the log's read pointer for the next task. */
 		assert(fseek(log, 0, SEEK_SET) == 0);
 		
-		/* Resample the raw PCM to the output format. */
-		
-		std::vector<int16_t> resample_out;
-		
-		if(background_bits == 8)
-		{
-			uint8_t *br_begin = (uint8_t*)(&(background_raw[0]));
-			uint8_t *br_end   = (uint8_t*)(&(background_raw[0]) + background_raw.size());
-			
-			resample_out = pcm_resample<uint8_t,int16_t>(br_begin, br_end, background_channels, background_rate, SAMPLE_RATE);
-		}
-		else if(background_bits == 16)
-		{
-			int16_t *br_begin = (int16_t*)(&(background_raw[0]));
-			int16_t *br_end   = (int16_t*)(&(background_raw[0]) + background_raw.size());
-			
-			resample_out = pcm_resample<int16_t,int16_t>(br_begin, br_end, background_channels, background_rate, SAMPLE_RATE);
-		}
-		
-		/* Populate the background_samples buffer with samples that can
-		 * be directly copied into m_samples, duplicating or skipping
-		 * channels as necessary.
+		/* Now we iterate over each of those buffers, looking for any
+		 * that match the criteria for being background audio, any that
+		 * do so are resampled to the output format and stored in
+		 * background_buffers.
 		*/
 		
-		background_samples.reserve((resample_out.size() / background_channels) * CHANNELS);
-		
-		for(size_t s = 0; s < resample_out.size();)
+		for(auto i = buffers_in.begin(); i != buffers_in.end(); ++i)
 		{
-			for(unsigned int c = 0; c < CHANNELS; ++c)
+			if(!(i->second.is_background))
 			{
-				if(c < background_channels)
+				continue;
+			}
+			
+			background_buffer new_buffer;
+			new_buffer.start_frame = i->second.start_frame;
+			
+			/* Resample the raw PCM to the output format. */
+			
+			std::vector<int16_t> resample_out;
+			
+			if(i->second.bits == 8)
+			{
+				uint8_t *br_begin = (uint8_t*)(&(i->second.data[0]));
+				uint8_t *br_end   = (uint8_t*)(&(i->second.data[0]) + i->second.data.size());
+				
+				resample_out = pcm_resample<uint8_t,int16_t>(br_begin, br_end, i->second.channels, i->second.rate, SAMPLE_RATE);
+			}
+			else if(i->second.bits == 16)
+			{
+				int16_t *br_begin = (int16_t*)(&(i->second.data[0]));
+				int16_t *br_end   = (int16_t*)(&(i->second.data[0]) + i->second.data.size());
+				
+				resample_out = pcm_resample<int16_t,int16_t>(br_begin, br_end, i->second.channels, i->second.rate, SAMPLE_RATE);
+			}
+			
+			/* Populate the background samples buffer with samples
+			 * in the output format, duplicating or skipping
+			 * channels as necessary.
+			*/
+			
+			for(size_t s = 0; s < resample_out.size();)
+			{
+				for(unsigned int c = 0; c < CHANNELS; ++c)
 				{
-					background_samples.push_back(resample_out[s++]);
+					if(c < i->second.channels)
+					{
+						new_buffer.samples.push(resample_out[s++]);
+					}
+					else{
+						new_buffer.samples.push(new_buffer.samples.back());
+					}
 				}
-				else{
-					background_samples.push_back(background_samples.front());
+				
+				if(i->second.channels > CHANNELS)
+				{
+					s += (i->second.channels - CHANNELS);
 				}
 			}
 			
-			if(background_channels > CHANNELS)
-			{
-				s += (background_channels - CHANNELS);
-			}
+			log_push(std::string("Background music detected, ")
+				+ to_string((new_buffer.samples.size() / SAMPLE_RATE) / CHANNELS)
+				+ " seconds long at "
+				+ to_string(i->second.start_frame / config.frame_rate)
+				+ " seconds\r\n");
+			
+			background_buffers.insert(std::make_pair(i->first,new_buffer));
 		}
 	}
 	
 	std::map<unsigned int, audio_buffer> buffers;
-	unsigned int background_buffer = 0;
 	
 	struct audio_event event;
 	
 	unsigned int frame_num = 0;
 	
-	std::list<int64_t> all_samples;
+	std::vector<int64_t> all_samples;
+	all_samples.reserve(get_frame_count() * (SAMPLE_RATE / config.frame_rate) * CHANNELS);
 	
 	while(fread(&event, sizeof(event), 1, log))
 	{
@@ -321,7 +388,7 @@ bool make_output_wav()
 			
 			for(buffer_iter b = buffers.begin(); b != buffers.end(); ++b)
 			{
-				if(b->first == background_buffer)
+				if(background_buffers.find(b->first) != background_buffers.end())
 				{
 					continue;
 				}
@@ -338,11 +405,20 @@ bool make_output_wav()
 			
 			/* Mix in background music... */
 			
-			for(size_t i = 0; i < f_samples.size() && (background_samples.size() - background_offset) >= CHANNELS;)
+			for(auto b = background_buffers.begin(); b != background_buffers.end(); ++b)
 			{
-				for(int c = 0; c < CHANNELS; ++c, ++i, ++background_offset)
+				if(b->second.start_frame > frame_num)
 				{
-					f_samples[i] += background_samples[background_offset];
+					continue;
+				}
+				
+				for(size_t i = 0; i < f_samples.size() && !b->second.samples.empty(); ++i)
+				{
+					auto bi = buffers.find(b->first);
+					assert(bi != buffers.end());
+					
+					f_samples[i] += b->second.samples.front() * bi->second.gain;
+					b->second.samples.pop();
 				}
 			}
 			
@@ -359,8 +435,6 @@ bool make_output_wav()
 			{
 				audio_buffer ab(event.e.init.size, event.e.init.sample_rate, event.e.init.sample_bits, event.e.init.channels);
 				buffers.insert(std::make_pair(event.e.init.buf_id, ab));
-				
-				background_buffer = event.e.init.buf_id;
 				
 				break;
 			}
@@ -527,7 +601,7 @@ bool make_output_wav()
 		do {
 			pv = volume;
 			
-			std::list<int64_t>::iterator si = all_samples.begin();
+			auto si = all_samples.begin();
 			
 			for(size_t i = 0; si != all_samples.end(); ++si, ++i)
 			{

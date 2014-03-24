@@ -21,7 +21,7 @@ CC       := gcc
 CFLAGS   := -Wall -std=c99
 
 CXX      := g++
-CXXFLAGS := -Wall
+CXXFLAGS := -Wall -std=c++0x
 
 WINDRES  := windres
 
