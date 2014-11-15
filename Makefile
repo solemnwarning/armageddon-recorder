@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 INCLUDES := -D_WIN32_WINNT=0x0501 -DWINVER=0x0501 -D_WIN32_IE=0x0300 -I./include/ -I../directx/
-LIBS     := -static-libgcc -static-libstdc++ -lcomctl32 -lcomdlg32 -lole32 -lsndfile
+LIBS     := -static-libgcc -static-libstdc++ -lcomctl32 -lcomdlg32 -lole32 -lsndfile -lversion
 
 CC       := gcc
 CFLAGS   := -Wall -std=c99

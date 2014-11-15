@@ -21,13 +21,23 @@
 #include <string>
 #include <sstream>
 #include <stdexcept>
+#include <stdint.h>
 
 #include "reg.hpp"
 
 #define LIST_HEIGHT 200
 
+inline uint64_t make_version(uint16_t major, uint16_t minor, uint16_t revision, uint16_t build)
+{
+	return ((uint64_t)(major)    << 48)
+	      | ((uint64_t)(minor)    << 32)
+	      | ((uint64_t)(revision) << 16)
+	      | ((uint64_t)(build)    <<  0);
+}
+
 extern std::string wa_path, wa_exe_name, wa_exe_path;
 extern bool wormkit_exe;
+extern uint64_t wa_version;
 
 extern reg_handle wa_options;
 

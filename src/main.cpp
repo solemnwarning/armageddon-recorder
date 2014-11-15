@@ -65,6 +65,7 @@ arec_config config;
 
 std::string wa_path, wa_exe_name, wa_exe_path;
 bool wormkit_exe;
+uint64_t wa_version;
 
 bool com_init = false;		/* COM has been initialized in the main thread */
 
@@ -250,6 +251,38 @@ static void update_wa_info()
 	wormkit_exe = (
 		GetFileAttributes(std::string(wa_path + "\\HookLib.dll").c_str()) != INVALID_FILE_ATTRIBUTES
 	);
+	
+	/* Get the version number out of WA.exe */
+	
+	DWORD fvi_size = GetFileVersionInfoSize(wa_exe_path.c_str(), NULL);
+	
+	std::unique_ptr<unsigned char[]> fvi(new unsigned char[fvi_size]);
+	
+	if(!fvi_size || !GetFileVersionInfo(wa_exe_path.c_str(), 0, fvi_size, fvi.get()))
+	{
+		MessageBox(
+			NULL,
+			std::string(std::string("Could not get WA version information: ") + w32_error(GetLastError())).c_str(),
+			NULL,
+			MB_ICONERROR | MB_OK | MB_TASKMODAL);
+		
+		return;
+	}
+	
+	VS_FIXEDFILEINFO *rb;
+	UINT rb_size;
+	
+	if(!VerQueryValue(fvi.get(), "\\", (void**)(&rb), &rb_size))
+	{
+		MessageBox(
+			NULL,
+			"Could not get WA version information",
+			NULL,
+			MB_ICONERROR | MB_OK | MB_TASKMODAL);
+		return;
+	}
+	
+	wa_version = ((uint64_t)(rb->dwFileVersionMS) << 32) | rb->dwFileVersionLS;
 }
 
 static void toggle_clipping(HWND hwnd)
