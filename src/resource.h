@@ -31,6 +31,7 @@
 #define LOAD_WORMKIT_DLLS                       40005
 #define MAX_ENC_THREADS                         40005
 #define INIT_VOL_EDIT                           40006
+#define SELECT_WA_EXE                           40006
 #define INIT_VOL_SLIDER                         40007
 #define MIN_VOL_SLIDER                          40015
 #define MIN_VOL_EDIT                            40016

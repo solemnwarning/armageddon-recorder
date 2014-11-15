@@ -30,6 +30,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <memory>
+#include <ctype.h>
 
 #include "resource.h"
 #include "audio.hpp"
@@ -62,7 +63,7 @@ const char *chat_levels[] = {
 
 arec_config config;
 
-std::string wa_path;
+std::string wa_path, wa_exe_name, wa_exe_path;
 bool wormkit_exe;
 
 bool com_init = false;		/* COM has been initialized in the main thread */
@@ -186,7 +187,66 @@ void set_combo_height(HWND combo) {
 	SetWindowPos(combo, 0, 0, 0, rect.right - rect.left, LIST_HEIGHT, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
 }
 
-void check_wormkit() {
+/* ugh. */
+static bool strcaseeq(const char *s1, const char *s2)
+{
+	while(*s1 != '\0' && *s2 != '\0' && tolower(*s1) == tolower(*s2))
+	{
+		++s1;
+		++s2;
+	}
+	
+	return (*s1 == '\0' && *s2 == '\0');
+}
+
+static void repopulate_exe_menu(HWND window)
+{
+	/* Build a list of things named like WA executables. */
+	
+	std::vector<std::string> exes;
+	exes.push_back("WA.exe");
+	
+	WIN32_FIND_DATA find_data;
+	HANDLE find_handle = FindFirstFile(std::string(wa_path + "\\WA-*.exe").c_str(), &find_data);
+	
+	if(find_handle != INVALID_HANDLE_VALUE)
+	{
+		do {
+			exes.push_back(find_data.cFileName);
+		} while(FindNextFile(find_handle, &find_data));
+		
+		FindClose(find_handle);
+	}
+	
+	HMENU menu = GetSubMenu(GetSubMenu(GetMenu(window), 0), 1);
+	
+	/* Clear and repopulate the menu. */
+	
+	while(RemoveMenu(menu, 0, MF_BYPOSITION)) {}
+	
+	for(auto exe = exes.begin(); exe != exes.end(); ++exe)
+	{
+		MENUITEMINFO mii;
+		memset(&mii, 0, sizeof(mii));
+		
+		mii.cbSize     = sizeof(mii);
+		mii.fMask      = MIIM_STRING | MIIM_STATE | MIIM_ID;
+		mii.fType      = MFT_STRING;
+		mii.fState     = strcaseeq(exe->c_str(), wa_exe_name.c_str()) ? MFS_CHECKED : 0;
+		mii.wID        = SELECT_WA_EXE;
+		mii.dwTypeData = (CHAR*)exe->c_str();
+		mii.cch        = exe->length() + 1;
+		
+		InsertMenuItem(menu, GetMenuItemCount(menu), TRUE, &mii);
+	}
+}
+
+static void update_wa_info()
+{
+	/* Update paths */
+	wa_exe_path = wa_path + "\\" + wa_exe_name;
+	
+	/* Check if wormkit (HookLib.dll) is installed */
 	wormkit_exe = (
 		GetFileAttributes(std::string(wa_path + "\\HookLib.dll").c_str()) != INVALID_FILE_ATTRIBUTES
 	);
@@ -240,6 +300,16 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 			menu_item_set(GetMenu(hwnd), WA_LOCK_CAMERA, config.wa_lock_camera);
 			menu_item_set(GetMenu(hwnd), WA_BIGGER_FONT, config.wa_bigger_fonts);
 			menu_item_set(GetMenu(hwnd), WA_TRANSPARENT_LABELS, config.wa_transparent_labels);
+			
+			HMENU exe_menu = CreatePopupMenu();
+			ModifyMenu(
+				GetSubMenu(GetMenu(hwnd), 0),
+				SELECT_WA_EXE,
+				MF_BYCOMMAND | MF_POPUP | MF_STRING,
+				(UINT_PTR)(exe_menu),
+				"Select Worms Armageddon executable");
+			
+			repopulate_exe_menu(hwnd);
 			
 			/* Capture settings... */
 			
@@ -548,13 +618,22 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 				std::string dir = choose_dir(hwnd, "Select Worms Armageddon directory:", "wa.exe");
 				if(!dir.empty())
 				{
+					wa_exe_name = "WA.exe";
 					wa_path = dir;
 					
-					check_wormkit();
+					update_wa_info();
+					repopulate_exe_menu(hwnd);
 					
 					EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_exe ? MF_ENABLED : MF_GRAYED);
 					CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
 				}
+			}
+			else if(mii.wID == SELECT_WA_EXE && mii.hSubMenu == NULL)
+			{
+				wa_exe_name = name.get();
+
+				update_wa_info();
+				repopulate_exe_menu(hwnd);
 			}
 			else if(mii.wID == LOAD_WORMKIT_DLLS)
 			{
@@ -681,7 +760,8 @@ int main(int argc, char **argv)
 	
 	reg_handle reg(HKEY_CURRENT_USER, "Software\\Armageddon Recorder", KEY_QUERY_VALUE | KEY_SET_VALUE, true);
 	
-	wa_path = reg.get_string("wa_path");
+	wa_path     = reg.get_string("wa_path");
+	wa_exe_name = reg.get_string("wa_exe_name", "WA.exe");
 	if(wa_path.empty())
 	{
 		reg_handle wa_reg(HKEY_CURRENT_USER, "Software\\Team17SoftwareLTD\\WormsArmageddon", KEY_QUERY_VALUE, false);
@@ -697,10 +777,12 @@ int main(int argc, char **argv)
 			MessageBox(NULL, "Worms Armageddon must be installed.", NULL, MB_OK | MB_ICONERROR);
 			return 1;
 		}
+		
+		wa_exe_name = "WA.exe";
 	}
 	
 	config.load_wormkit_dlls = reg.get_dword("load_wormkit_dlls", false);
-	check_wormkit();
+	update_wa_info();
 	
 	config.video_format = std::max(get_ffmpeg_index(video_formats, reg.get_string("selected_encoder", "Uncompressed AVI")), 0);
 	config.audio_format = std::max(get_ffmpeg_index(audio_formats, reg.get_string("audio_format")), 0);
@@ -757,6 +839,7 @@ int main(int argc, char **argv)
 		reg.set_string("video_dir", config.video_dir);
 		
 		reg.set_string("wa_path", wa_path);
+		reg.set_string("wa_exe_name", wa_exe_name);
 		reg.set_dword("load_wormkit_dlls", config.load_wormkit_dlls);
 		
 		if(!DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_PROGRESS), NULL, &prog_dproc)) {

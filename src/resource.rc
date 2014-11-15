@@ -19,6 +19,7 @@ MENU_MAIN MENU
     POPUP "Options"
     {
         MENUITEM "Select Worms Armageddon directory...", SELECT_WA_DIR
+        MENUITEM "-- UNINITIALISED --", SELECT_WA_EXE
         MENUITEM "Load WormKit modules", LOAD_WORMKIT_DLLS
         MENUITEM "Advanced options...", ADV_OPTIONS
         MENUITEM SEPARATOR

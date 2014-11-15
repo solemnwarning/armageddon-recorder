@@ -1,5 +1,5 @@
 /* Armageddon Recorder
- * Copyright (C) 2012 Daniel Collins <solemnwarning@solemnwarning.net>
+ * Copyright (C) 2012-2014 Daniel Collins <solemnwarning@solemnwarning.net>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@
 
 #define LIST_HEIGHT 200
 
-extern std::string wa_path;
+extern std::string wa_path, wa_exe_name, wa_exe_path;
 extern bool wormkit_exe;
 
 extern reg_handle wa_options;

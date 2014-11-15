@@ -1,5 +1,5 @@
 /* Armageddon Recorder - Capture code
- * Copyright (C) 2012 Daniel Collins <solemnwarning@solemnwarning.net>
+ * Copyright (C) 2012-2014 Daniel Collins <solemnwarning@solemnwarning.net>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -163,7 +163,7 @@ bool start_capture()
 	
 	/* Build the command line and copy it to a persistent buffer. */
 	
-	std::string cmdline = "\"" + wa_path + "\\WA.exe\" /getvideo"
+	std::string cmdline = "\"" + wa_exe_path + "\" /getvideo"
 		" \"" + config.replay_file + "\""
 		" \"" + to_string((double)(50) / config.frame_rate) + "\""
 		" \"" + config.start_time + "\" \"" + config.end_time + "\""
