@@ -163,9 +163,18 @@ bool start_capture()
 	
 	/* Build the command line and copy it to a persistent buffer. */
 	
+	std::string frame_rate_arg;
+	if(wa_version >= make_version(3, 7, 2, 40))
+	{
+		frame_rate_arg = to_string(config.frame_rate);
+	}
+	else{
+		frame_rate_arg = to_string((double)(50) / config.frame_rate);
+	}
+	
 	std::string cmdline = "\"" + wa_exe_path + "\" /getvideo"
 		" \"" + config.replay_file + "\""
-		" \"" + to_string((double)(50) / config.frame_rate) + "\""
+		" \"" + frame_rate_arg + "\""
 		" \"" + config.start_time + "\" \"" + config.end_time + "\""
 		" \"" + to_string(config.width) + "\" \"" + to_string(config.height) + "\""
 		" \"" + FRAME_PREFIX + "\"";

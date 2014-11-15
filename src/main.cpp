@@ -434,7 +434,11 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 						}
 						
 						try {
-							config.frame_rate = get_window_int(GetDlgItem(hwnd, FRAMES_SEC), 1, 50);
+							unsigned int max_rate = wa_version >= make_version(3, 7, 2, 40)
+								? 25600
+								: 50;
+							
+							config.frame_rate = get_window_int(GetDlgItem(hwnd, FRAMES_SEC), 1, max_rate);
 						}
 						catch(const bad_input &e)
 						{
