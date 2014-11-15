@@ -1,5 +1,5 @@
 /* Armageddon Recorder
- * Copyright (C) 2012 Daniel Collins <solemnwarning@solemnwarning.net>
+ * Copyright (C) 2012-2014 Daniel Collins <solemnwarning@solemnwarning.net>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stdint.h>
+#include <memory>
 
 #include "resource.h"
 #include "audio.hpp"
@@ -209,6 +210,27 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 			
 			SendMessage(hwnd, WM_SETICON, 0, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON16)));
 			SendMessage(hwnd, WM_SETICON, 1, (LPARAM)LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(ICON32)));
+			
+			HMENU menu = GetMenu(hwnd);
+
+			{
+				/* Set the MNS_NOTIFYBYPOS style on the window
+				 * menu bar, clicking any items will result in a
+				 * WM_MENUCOMMAND message.
+				*/
+
+				MENUINFO mi;
+				memset(&mi, 0, sizeof(mi));
+
+				mi.cbSize = sizeof(mi);
+				mi.fMask  = MIM_STYLE;
+				
+				GetMenuInfo(menu, &mi);
+				
+				mi.dwStyle |= MNS_NOTIFYBYPOS;
+				
+				SetMenuInfo(menu, &mi);
+			}
 			
 			/* Initialise menu items... */
 			
@@ -482,52 +504,6 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 						
 						break;
 					}
-					
-					case SELECT_WA_DIR:
-					{
-						std::string dir = choose_dir(hwnd, "Select Worms Armageddon directory:", "wa.exe");
-						if(!dir.empty())
-						{
-							wa_path = dir;
-							
-							check_wormkit();
-							
-							EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_exe ? MF_ENABLED : MF_GRAYED);
-							CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
-						}
-						
-						break;
-					}
-					
-					case LOAD_WORMKIT_DLLS:
-					{
-						config.load_wormkit_dlls = menu_item_toggle(GetMenu(hwnd), LOAD_WORMKIT_DLLS);
-						break;
-					}
-					
-					case ADV_OPTIONS:
-					{
-						DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_OPTIONS), hwnd, &options_dproc);
-						break;
-					}
-					
-					case WA_LOCK_CAMERA:
-					{
-						config.wa_lock_camera = menu_item_toggle(GetMenu(hwnd), WA_LOCK_CAMERA);
-						break;
-					}
-					
-					case WA_BIGGER_FONT:
-					{
-						config.wa_bigger_fonts = menu_item_toggle(GetMenu(hwnd), WA_BIGGER_FONT);
-						break;
-					}
-					
-					case WA_TRANSPARENT_LABELS:
-					{
-						config.wa_transparent_labels = menu_item_toggle(GetMenu(hwnd), WA_TRANSPARENT_LABELS);
-						break;
-					}
 				}
 				
 				return TRUE;
@@ -550,6 +526,55 @@ INT_PTR CALLBACK main_dproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 				{
 					config.audio_format = ComboBox_GetCurSel(GetDlgItem(hwnd, AUDIO_FORMAT_MENU));
 				}
+			}
+		}
+		
+		case WM_MENUCOMMAND:
+		{
+			MENUITEMINFO mii;
+			memset(&mii, 0, sizeof(mii));
+			mii.cbSize = sizeof(mii);
+			mii.fMask  = MIIM_STRING | MIIM_ID | MIIM_SUBMENU;
+			
+			GetMenuItemInfo((HMENU)(lp), (UINT)(wp), TRUE, &mii);
+			
+			std::unique_ptr<char[]> name(new char[++mii.cch]);
+			mii.dwTypeData = name.get();
+			
+			GetMenuItemInfo((HMENU)(lp), (UINT)(wp), TRUE, &mii);
+			
+			if(mii.wID == SELECT_WA_DIR)
+			{
+				std::string dir = choose_dir(hwnd, "Select Worms Armageddon directory:", "wa.exe");
+				if(!dir.empty())
+				{
+					wa_path = dir;
+					
+					check_wormkit();
+					
+					EnableMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, wormkit_exe ? MF_ENABLED : MF_GRAYED);
+					CheckMenuItem(GetMenu(hwnd), LOAD_WORMKIT_DLLS, (wormkit_exe && config.load_wormkit_dlls) ? MF_CHECKED : MF_UNCHECKED);
+				}
+			}
+			else if(mii.wID == LOAD_WORMKIT_DLLS)
+			{
+				config.load_wormkit_dlls = menu_item_toggle(GetMenu(hwnd), LOAD_WORMKIT_DLLS);
+			}
+			else if(mii.wID == ADV_OPTIONS)
+			{
+				DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(DLG_OPTIONS), hwnd, &options_dproc);
+			}
+			else if(mii.wID == WA_LOCK_CAMERA)
+			{
+				config.wa_lock_camera = menu_item_toggle(GetMenu(hwnd), WA_LOCK_CAMERA);
+			}
+			else if(mii.wID == WA_BIGGER_FONT)
+			{
+				config.wa_bigger_fonts = menu_item_toggle(GetMenu(hwnd), WA_BIGGER_FONT);
+			}
+			else if(mii.wID == WA_TRANSPARENT_LABELS)
+			{
+				config.wa_transparent_labels = menu_item_toggle(GetMenu(hwnd), WA_TRANSPARENT_LABELS);
 			}
 		}
 		
