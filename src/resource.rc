@@ -114,11 +114,11 @@ FONT 8, "Ms Shell Dlg"
 // Icon resources
 //
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
-ICON16             ICON           ".\\icon16.ico"
+ICON16             ICON           "icon16.ico"
 
 
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
-ICON32             ICON           ".\\icon32.ico"
+ICON32             ICON           "icon32.ico"
 
 
 
@@ -126,4 +126,4 @@ ICON32             ICON           ".\\icon32.ico"
 // Manifest resources
 //
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
-1                  RT_MANIFEST    ".\\manifest.xml"
+1                  RT_MANIFEST    "manifest.xml"

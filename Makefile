@@ -1,5 +1,5 @@
 # Armageddon Recorder - Makefile
-# Copyright (C) 2012-2014 Daniel Collins <solemnwarning@solemnwarning.net>
+# Copyright (C) 2012-2015 Daniel Collins <solemnwarning@solemnwarning.net>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,16 +14,21 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-INCLUDES := -D_WIN32_WINNT=0x0501 -DWINVER=0x0501 -D_WIN32_IE=0x0300 -I./include/ -I../directx/
+ifdef HOST
+CC  := $(HOST)-gcc
+CXX := $(HOST)-g++
+endif
+
+WINDRES ?= $(shell \
+	(which "$(HOST)-windres" > /dev/null 2>&1 && echo "$(HOST)-windres") \
+	|| echo "windres" \
+)
+
+INCLUDES := -D_WIN32_WINNT=0x0501 -DWINVER=0x0501 -D_WIN32_IE=0x0600 -I./include/ -I../directx/
 LIBS     := -static-libgcc -static-libstdc++ -lcomctl32 -lcomdlg32 -lole32 -lsndfile -lversion
 
-CC       := gcc
 CFLAGS   := -Wall -std=c99
-
-CXX      := g++
 CXXFLAGS := -Wall -std=c++0x
-
-WINDRES  := windres
 
 OBJS := src/main.o src/resource.o src/audio.o src/reg.o src/encode.o \
 	src/capture.o src/ui.o
